@@ -39,7 +39,6 @@ public class ReplicationRSBridge {
         modEventBus.addListener(this::addCreative);
         
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
-        LOGGER.info("RepRS2Bridge: Config registered");
 
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
@@ -50,29 +49,12 @@ public class ReplicationRSBridge {
 
     private void commonSetup(final FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
-            boolean replicationLoaded = ModList.get().isLoaded("replication");
-            boolean rs2Loaded = ModList.get().isLoaded("refinedstorage");
-            
-            if (replicationLoaded && rs2Loaded) {
-                LOGGER.info("Replication and RS2 mods loaded");
-            } else {
-                try {
-                    LOGGER.info("Registering DefaultMatterNetworkElement factory");
-                    NetworkElementRegistry.INSTANCE.addFactory(DefaultMatterNetworkElement.ID, new DefaultMatterNetworkElement.Factory());
-                    LOGGER.info("Replication network integration complete");
-                } catch (Exception e) {
-                    if (e.getMessage() != null && e.getMessage().contains("duplicate")) {
-                        LOGGER.info("DefaultMatterNetworkElement factory already registered");
-                    } else {
-                        LOGGER.error("Failed to register with Replication network system", e);
-                    }
-                }
+            if (!ModList.get().isLoaded("replication") || !ModList.get().isLoaded("refinedstorage")) {
+                NetworkElementRegistry.INSTANCE.addFactory(DefaultMatterNetworkElement.ID, new DefaultMatterNetworkElement.Factory());
             }
         });
 
         event.enqueueWork(this::registerWithReplicationMod);
-        
-        LOGGER.info("RepRS2Bridge: Bridge energy consumption set to {} FE/t", Config.bridgeEnergyConsumption);
     }
 
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
@@ -83,13 +65,11 @@ public class ReplicationRSBridge {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        LOGGER.info("RepRS2Bridge: Server starting");
         RepRS2BridgeBlockEntity.setWorldUnloading(false);
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        LOGGER.info("RepRS2Bridge: Server stopping");
         RepRS2BridgeBlockEntity.setWorldUnloading(true);
     }
 
@@ -101,14 +81,9 @@ public class ReplicationRSBridge {
     }
 
     private void registerWithReplicationMod() {
-        try {
-            MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
-                block.getClass().getName().contains(MODID)
-            );
-            LOGGER.debug("Successfully registered mod namespace with Replication");
-        } catch (Exception e) {
-            LOGGER.debug("Replication mod not fully initialized yet");
-        }
+        MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
+            block.getClass().getName().contains(MODID)
+        );
     }
 
     private void registerCapabilities(final RegisterCapabilitiesEvent event) {

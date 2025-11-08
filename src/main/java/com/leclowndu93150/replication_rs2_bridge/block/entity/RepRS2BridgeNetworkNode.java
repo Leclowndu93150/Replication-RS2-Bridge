@@ -104,9 +104,6 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     @Override
     protected void onActiveChanged(final boolean newActive) {
         super.onActiveChanged(newActive);
-        if (Config.enableDebugLogging) {
-            LOGGER.debug("Bridge node active state changed: {}", newActive);
-        }
         if (network != null) {
             final StorageNetworkComponent storage = network.getComponent(StorageNetworkComponent.class);
             if (storage != null) {

@@ -9,9 +9,6 @@ import net.minecraft.core.Direction;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 
-/**
- * Capability registration for exposing the bridge inventory to vanilla/Forge automation.
- */
 public final class RepRS2BridgeCapabilities {
     private RepRS2BridgeCapabilities() {
     }

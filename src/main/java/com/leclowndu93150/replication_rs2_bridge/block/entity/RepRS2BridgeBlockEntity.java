@@ -691,9 +691,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     public void onNetworkActivityChanged(final boolean active) {
-        if (Config.enableDebugLogging) {
-            LOGGER.debug("Bridge {} activity changed: {}", worldPosition, active);
-        }
         updateConnectedState();
     }
 
@@ -758,10 +755,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     public void disconnectFromNetworks() {
-        if (Config.enableDebugLogging) {
-            LOGGER.info("Bridge: Disconnecting from RS2 and Replication networks at {}", worldPosition);
-        }
-        
         if (level != null && !level.isClientSide() && nodeContainer != null) {
             try {
                 RefinedStorageApi.INSTANCE.removeNetworkNodeContainer(nodeContainer, level);
