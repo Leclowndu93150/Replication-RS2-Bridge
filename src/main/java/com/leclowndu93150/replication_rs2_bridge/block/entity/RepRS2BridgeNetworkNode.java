@@ -12,6 +12,8 @@ import com.refinedmods.refinedstorage.api.autocrafting.task.StepBehavior;
 import com.refinedmods.refinedstorage.api.autocrafting.task.Task;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskId;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskListener;
+import com.refinedmods.refinedstorage.api.autocrafting.task.TaskSnapshot;
+import com.refinedmods.refinedstorage.api.autocrafting.task.TaskImpl;
 import com.refinedmods.refinedstorage.api.core.Action;
 import com.refinedmods.refinedstorage.api.network.Network;
 import com.refinedmods.refinedstorage.api.network.autocrafting.AutocraftingNetworkComponent;
@@ -53,6 +55,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     private final Set<ParentContainer> parents = new HashSet<>();
     private final Map<PatternSignature, ReplicationPatternInstance> patternsBySignature = new HashMap<>();
     private final Map<Pattern, ReplicationPatternInstance> patternsByPattern = new HashMap<>();
+    private final List<TaskSnapshot> deferredSnapshots = new ArrayList<>();
 
     private StepBehavior stepBehavior = StepBehavior.DEFAULT;
     private int priority;
@@ -86,6 +89,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
                     storage.addSource(getStorage());
                 }
             }
+            rebuildDeferredTasks();
         }
     }
 
@@ -119,6 +123,10 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     @Override
     public Storage getStorage() {
         return blockEntity.getMatterStorage();
+    }
+
+    public boolean hasActiveTasks() {
+        return !tasks.getAll().isEmpty();
     }
 
     public void setPriority(final int priority) {
@@ -170,6 +178,29 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
 
         removed.forEach(pattern -> parents.forEach(parent -> parent.remove(this, pattern)));
         added.forEach(pattern -> parents.forEach(parent -> parent.add(this, pattern, priority)));
+    }
+
+    public List<TaskSnapshot> getTaskSnapshots() {
+        return tasks.getAll().stream()
+            .filter(TaskImpl.class::isInstance)
+            .map(task -> ((TaskImpl) task).createSnapshot())
+            .toList();
+    }
+
+    public void restoreTasks(final List<TaskSnapshot> snapshots) {
+        deferredSnapshots.clear();
+        deferredSnapshots.addAll(snapshots);
+        rebuildDeferredTasks();
+    }
+
+    private void rebuildDeferredTasks() {
+        if (deferredSnapshots.isEmpty()) {
+            return;
+        }
+        for (TaskSnapshot snapshot : deferredSnapshots) {
+            tasks.add(new TaskImpl(snapshot), network);
+        }
+        deferredSnapshots.clear();
     }
 
     private Pattern createPattern(final ReplicationPatternTemplate template) {
