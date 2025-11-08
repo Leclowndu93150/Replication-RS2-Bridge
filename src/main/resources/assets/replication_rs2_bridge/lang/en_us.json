@@ -1,0 +1,11 @@
+{
+  "block.replication_rs2_bridge.rep_rs2_bridge": "Replication RS2 Bridge",
+  "item.replication_rs2_bridge.earth": "Earth Matter",
+  "item.replication_rs2_bridge.nether": "Nether Matter",
+  "item.replication_rs2_bridge.organic": "Organic Matter",
+  "item.replication_rs2_bridge.ender": "Ender Matter",
+  "item.replication_rs2_bridge.metallic": "Metallic Matter",
+  "item.replication_rs2_bridge.precious": "Precious Matter",
+  "item.replication_rs2_bridge.living": "Living Matter",
+  "item.replication_rs2_bridge.quantum": "Quantum Matter"
+}

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "connected=false": {
+      "model": "replication_rs2_bridge:block/rep_rs2_bridge"
+    },
+    "connected=true": {
+      "model": "replication_rs2_bridge:block/rep_rs2_bridge"
+    }
+  }
+}
