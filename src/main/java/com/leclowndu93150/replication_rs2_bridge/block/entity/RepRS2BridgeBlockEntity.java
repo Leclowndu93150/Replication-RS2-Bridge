@@ -26,16 +26,18 @@ import com.refinedmods.refinedstorage.api.autocrafting.task.ExternalPatternSink;
 import com.refinedmods.refinedstorage.api.core.Action;
 import com.refinedmods.refinedstorage.api.network.Network;
 import com.refinedmods.refinedstorage.api.network.energy.EnergyNetworkComponent;
-import com.refinedmods.refinedstorage.api.network.energy.EnergyNetworkComponent;
 import com.refinedmods.refinedstorage.api.network.node.NetworkNode;
 import com.refinedmods.refinedstorage.api.network.storage.StorageNetworkComponent;
 import com.refinedmods.refinedstorage.api.resource.ResourceAmount;
 import com.refinedmods.refinedstorage.api.resource.ResourceKey;
 import com.refinedmods.refinedstorage.api.storage.Actor;
 import com.refinedmods.refinedstorage.api.storage.Storage;
+import com.refinedmods.refinedstorage.api.storage.composite.CompositeAwareChild;
+import com.refinedmods.refinedstorage.api.storage.composite.ParentComposite;
 import com.refinedmods.refinedstorage.common.api.RefinedStorageApi;
 import com.refinedmods.refinedstorage.common.api.support.network.InWorldNetworkNodeContainer;
 import com.refinedmods.refinedstorage.common.api.support.network.NetworkNodeContainerProvider;
+import com.refinedmods.refinedstorage.common.api.storage.PlayerActor;
 import com.refinedmods.refinedstorage.common.support.network.ColoredConnectionStrategy;
 import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
 import net.minecraft.core.BlockPos;
@@ -182,6 +184,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 shouldReconnect = false;
                 updateConnectedState();
                 forceNeighborUpdates();
+                matterItemsStorage.refreshCache();
                 if (Config.enableDebugLogging) {
                     LOGGER.info("Bridge: RS2 node initialized successfully at {}", worldPosition);
                 }
@@ -274,12 +277,15 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             }
         }
         
-        if (level.getGameTime() % 20 == 0 && initialized == 1) {
-            try {
-                transferItemsToRS2();
-            } catch (Exception e) {
-                LOGGER.error("Bridge: Exception in transferItemsToRS2(): {}", e.getMessage());
+        if (level.getGameTime() % 20 == 0) {
+            if (initialized == 1) {
+                try {
+                    transferItemsToRS2();
+                } catch (Exception e) {
+                    LOGGER.error("Bridge: Exception in transferItemsToRS2(): {}", e.getMessage());
+                }
             }
+            matterItemsStorage.refreshCache();
         }
         
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
@@ -640,8 +646,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         if (blockId != null) {
             tag.putUUID("BlockId", blockId);
         }
-        tag.putBoolean("nodeCreated", nodeCreated);
-        tag.putBoolean("shouldReconnect", shouldReconnect);
     }
 
     @Override
@@ -652,12 +656,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         } else {
             blockId = UUID.randomUUID();
         }
-        if (tag.contains("nodeCreated")) {
-            nodeCreated = tag.getBoolean("nodeCreated");
-        }
-        if (tag.contains("shouldReconnect")) {
-            shouldReconnect = tag.getBoolean("shouldReconnect");
-        }
+        nodeCreated = false;
+        shouldReconnect = true;
     }
 
     @Override
@@ -841,7 +841,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return containerProvider;
     }
 
-    public class MatterItemsStorage implements Storage {
+    public class MatterItemsStorage implements Storage, CompositeAwareChild {
+        private ParentComposite parentComposite;
+        private final Map<ResourceKey, Long> cachedAmounts = new HashMap<>();
+
         @Override
         public long insert(ResourceKey resource, long amount, Action action, Actor actor) {
             return 0;
@@ -850,6 +853,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         @Override
         public long extract(ResourceKey resource, long amount, Action action, Actor actor) {
             if (initialized != 1) {
+                return 0;
+            }
+
+            if (actor instanceof PlayerActor) {
+                // Prevent players from pulling virtual matter directly from the grid.
                 return 0;
             }
             
@@ -917,6 +925,60 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         @Override
         public long getStored() {
             return getAll().stream().mapToLong(ResourceAmount::amount).sum();
+        }
+
+        @Override
+        public void onAddedIntoComposite(ParentComposite parentComposite) {
+            this.parentComposite = parentComposite;
+            cachedAmounts.clear();
+            for (ResourceAmount amount : getAll()) {
+                cachedAmounts.put(amount.resource(), amount.amount());
+            }
+        }
+
+        @Override
+        public void onRemovedFromComposite(ParentComposite parentComposite) {
+            this.parentComposite = null;
+            cachedAmounts.clear();
+        }
+
+        @Override
+        public Amount compositeInsert(ResourceKey resource, long amount, Action action, Actor actor) {
+            return Amount.ZERO;
+        }
+
+        @Override
+        public Amount compositeExtract(ResourceKey resource, long amount, Action action, Actor actor) {
+            return Amount.ZERO;
+        }
+
+        public void refreshCache() {
+            if (parentComposite == null || level == null || level.isClientSide()) {
+                return;
+            }
+            Map<ResourceKey, Long> latest = new HashMap<>();
+            for (ResourceAmount amount : getAll()) {
+                latest.put(amount.resource(), amount.amount());
+            }
+            for (Map.Entry<ResourceKey, Long> entry : latest.entrySet()) {
+                long previous = cachedAmounts.getOrDefault(entry.getKey(), 0L);
+                long delta = entry.getValue() - previous;
+                if (delta > 0) {
+                    parentComposite.addToCache(entry.getKey(), delta);
+                } else if (delta < 0) {
+                    parentComposite.removeFromCache(entry.getKey(), -delta);
+                }
+            }
+            for (ResourceKey previousKey : new HashSet<>(cachedAmounts.keySet())) {
+                if (!latest.containsKey(previousKey)) {
+                    long previous = cachedAmounts.get(previousKey);
+                    if (previous > 0) {
+                        parentComposite.removeFromCache(previousKey, previous);
+                    }
+                }
+            }
+            cachedAmounts.clear();
+            cachedAmounts.putAll(latest);
         }
     }
 
