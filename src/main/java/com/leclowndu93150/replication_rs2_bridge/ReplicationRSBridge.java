@@ -36,13 +36,12 @@ public class ReplicationRSBridge {
         
         NeoForge.EVENT_BUS.register(this);
         
-        modEventBus.addListener(this::addCreative);
-        
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
+        com.leclowndu93150.replication_rs2_bridge.item.ModCreativeTabs.register(modEventBus);
 
         modEventBus.addListener(this::registerCapabilities);
     }
@@ -57,11 +56,6 @@ public class ReplicationRSBridge {
         event.enqueueWork(this::registerWithReplicationMod);
     }
 
-    private void addCreative(BuildCreativeModeTabContentsEvent event) {
-        if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) {
-            event.accept(ModBlocks.REP_RS2_BRIDGE.get());
-        }
-    }
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {

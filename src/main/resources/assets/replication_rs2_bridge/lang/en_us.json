@@ -7,5 +7,6 @@
   "item.replication_rs2_bridge.metallic": "Metallic Matter",
   "item.replication_rs2_bridge.precious": "Precious Matter",
   "item.replication_rs2_bridge.living": "Living Matter",
-  "item.replication_rs2_bridge.quantum": "Quantum Matter"
+  "item.replication_rs2_bridge.quantum": "Quantum Matter",
+  "itemGroup.replication_rs2_bridge": "Replication RS2 Bridge"
 }

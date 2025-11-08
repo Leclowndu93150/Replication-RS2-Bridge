@@ -137,7 +137,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 .setInputFilter((stack, slot) -> true);
         this.addInventory(this.output);
         
-        this.networkNode = new RepRS2BridgeNetworkNode(this, Config.bridgeEnergyConsumption);
+        this.networkNode = new RepRS2BridgeNetworkNode(this, 10);
         this.containerProvider = RefinedStorageApi.INSTANCE.createNetworkNodeContainerProvider();
         this.nodeContainer = RefinedStorageApi.INSTANCE.createNetworkNodeContainer(this, networkNode)
                 .connectionStrategy(new ColoredConnectionStrategy(this::getBlockState, worldPosition))
@@ -145,9 +145,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         this.containerProvider.addContainer(this.nodeContainer);
         
         activeBridges.add(this);
-        if (Config.enableDebugLogging) {
-            LOGGER.debug("Bridge created at {} (total bridges: {})", pos, activeBridges.size());
-        }
     }
 
     @NotNull
@@ -216,9 +213,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                     updateRS2Patterns();
                 } catch (Exception patternEx) {
                     LOGGER.error("Bridge: Pattern update failed during initialization", patternEx);
-                }
-                if (Config.enableDebugLogging) {
-                    LOGGER.info("Bridge: RS2 node initialized successfully at {}", worldPosition);
                 }
             });
         } catch (Exception e) {
@@ -307,9 +301,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         if (initialized == 0) {
             initializationTicks++;
             if (initializationTicks >= INITIALIZATION_DELAY) {
-                if (Config.enableDebugLogging) {
-                    LOGGER.info("Bridge: Initialization completed at {}", worldPosition);
-                }
                 initialized = 1;
             }
         }

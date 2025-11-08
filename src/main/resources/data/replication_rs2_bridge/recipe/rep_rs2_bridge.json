@@ -1,0 +1,26 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "RCR",
+    "MBM",
+    "RCR"
+  ],
+  "key": {
+    "R": {
+      "item": "replication:replica_ingot"
+    },
+    "C": {
+      "item": "refinedstorage:construction_core"
+    },
+    "M": {
+      "item": "replication:memory_chip"
+    },
+    "B": {
+      "item": "refinedstorage:machine_casing"
+    }
+  },
+  "result": {
+    "id": "replication_rs2_bridge:rep_rs2_bridge"
+  }
+}

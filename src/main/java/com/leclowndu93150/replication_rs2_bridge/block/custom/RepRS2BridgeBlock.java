@@ -30,16 +30,6 @@ public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> i
     public RepRS2BridgeBlock(Properties properties) {
         super(properties, RepRS2BridgeBlockEntity.class);
         registerDefaultState(this.getStateDefinition().any().setValue(CONNECTED, false));
-        registerWithReplicationMod();
-    }
-    
-    private void registerWithReplicationMod() {
-        try {
-            if (MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS != null) {
-                MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> block instanceof RepRS2BridgeBlock);
-            }
-        } catch (Exception e) {
-        }
     }
     
     @Override
@@ -90,11 +80,6 @@ public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> i
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moving) {
         if (!state.is(newState.getBlock())) {
-            if (!level.isClientSide) {
-                ItemStack itemStack = new ItemStack(this);
-                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), itemStack);
-            }
-            
             if (level.getBlockEntity(pos) instanceof RepRS2BridgeBlockEntity blockEntity) {
                 dropInventory(level, pos, blockEntity);
                 blockEntity.disconnectFromNetworks();
