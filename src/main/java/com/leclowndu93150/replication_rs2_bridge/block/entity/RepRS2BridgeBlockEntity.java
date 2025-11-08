@@ -404,8 +404,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                         if (level instanceof ServerLevel serverLevel) {
                             network.onTaskValueChanged(task, serverLevel);
                         }
-                        
-                        TaskSourceInfo info = new TaskSourceInfo(itemStack, sourceId);
+
+                        TaskSourceInfo info = getTaskSourceInfo(itemStack, sourceId);
                         Map<String, TaskSourceInfo> sourceTasks = activeTasks.getOrDefault(sourceId, new HashMap<>());
                         sourceTasks.put(taskId, info);
                         activeTasks.put(sourceId, sourceTasks);
@@ -421,6 +421,19 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 }
             }
         }
+    }
+
+    private @NotNull TaskSourceInfo getTaskSourceInfo(ItemStack itemStack, UUID sourceId) {
+        TaskId rs2TaskId = null;
+        if (networkNode != null && networkNode.getNetwork() != null) {
+            var rs2Tasks = networkNode.getTaskSnapshots();
+            if (!rs2Tasks.isEmpty()) {
+                rs2TaskId = rs2Tasks.get(rs2Tasks.size() - 1).id();
+            }
+        }
+
+        TaskSourceInfo info = new TaskSourceInfo(itemStack, sourceId, rs2TaskId);
+        return info;
     }
 
     private void extractMatterForTask(MatterPattern pattern, int count) {
@@ -866,8 +879,47 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     public void handleExternalIteration() {
-        // Currently used to keep debug counters in sync; can be extended later.
         this.debugTickCounter = 0;
+    }
+
+    public void cancelReplicationTaskForRS2Task(final TaskId rs2TaskId) {
+        if (blockId == null || level == null || level.isClientSide()) {
+            return;
+        }
+        
+        Map<String, TaskSourceInfo> sourceTasks = activeTasks.get(blockId);
+        if (sourceTasks == null || sourceTasks.isEmpty()) {
+            return;
+        }
+        
+        List<String> replicationTaskIds = new ArrayList<>();
+        for (Map.Entry<String, TaskSourceInfo> entry : sourceTasks.entrySet()) {
+            TaskSourceInfo info = entry.getValue();
+            if (info.getRs2TaskId() != null && info.getRs2TaskId().equals(rs2TaskId)) {
+                replicationTaskIds.add(entry.getKey());
+            }
+        }
+        
+        if (!replicationTaskIds.isEmpty()) {
+            MatterNetwork replicationNetwork = getNetwork();
+            if (replicationNetwork != null && level instanceof ServerLevel serverLevel) {
+                for (String replicationTaskId : replicationTaskIds) {
+                    replicationNetwork.cancelTask(replicationTaskId, serverLevel);
+                    sourceTasks.remove(replicationTaskId);
+                }
+                
+                if (sourceTasks.isEmpty()) {
+                    activeTasks.remove(blockId);
+                }
+                
+                Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.get(blockId);
+                if (sourceRequests != null) {
+                    sourceRequests.clear();
+                }
+                
+                setChanged();
+            }
+        }
     }
 
     private void tickNetworkNode() {
@@ -1097,10 +1149,16 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     public static class TaskSourceInfo {
         private final ItemStack itemStack;
         private final UUID sourceId;
+        private final TaskId rs2TaskId;
 
         public TaskSourceInfo(ItemStack itemStack, UUID sourceId) {
+            this(itemStack, sourceId, null);
+        }
+
+        public TaskSourceInfo(ItemStack itemStack, UUID sourceId, TaskId rs2TaskId) {
             this.itemStack = itemStack.copy();
             this.sourceId = sourceId;
+            this.rs2TaskId = rs2TaskId;
         }
 
         public ItemStack getItemStack() {
@@ -1109,6 +1167,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
         public UUID getSourceId() {
             return sourceId;
+        }
+
+        public TaskId getRs2TaskId() {
+            return rs2TaskId;
         }
     }
 
@@ -1266,6 +1328,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             CompoundTag entry = new CompoundTag();
             entry.putString("TaskId", taskId);
             entry.put("Stack", info.getItemStack().saveOptional(registries));
+            if (info.getRs2TaskId() != null) {
+                entry.putUUID("Rs2TaskId", info.getRs2TaskId().id());
+            }
             list.add(entry);
         });
         return list;
@@ -1280,7 +1345,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 continue;
             }
             String taskId = entry.getString("TaskId");
-            map.put(taskId, new TaskSourceInfo(stack, blockId));
+            TaskId rs2TaskId = null;
+            if (entry.contains("Rs2TaskId")) {
+                rs2TaskId = new TaskId(entry.getUUID("Rs2TaskId"));
+            }
+            map.put(taskId, new TaskSourceInfo(stack, blockId, rs2TaskId));
         }
         return map;
     }

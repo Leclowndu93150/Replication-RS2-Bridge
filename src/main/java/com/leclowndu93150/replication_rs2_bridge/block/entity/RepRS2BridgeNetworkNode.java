@@ -245,6 +245,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
 
     @Override
     public void cancelTask(final TaskId taskId) {
+        blockEntity.cancelReplicationTaskForRS2Task(taskId);
         tasks.cancel(taskId);
     }
 

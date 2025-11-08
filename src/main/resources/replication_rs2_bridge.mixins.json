@@ -6,6 +6,7 @@
   "mixins": [
   ],
   "client": [
+    "ReplicationTaskWidgetMixin"
   ],
   "injectors": {
     "defaultRequire": 1
