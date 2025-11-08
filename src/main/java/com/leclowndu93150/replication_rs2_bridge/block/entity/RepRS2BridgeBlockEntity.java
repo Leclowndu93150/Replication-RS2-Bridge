@@ -43,6 +43,7 @@ import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.InteractionHand;
@@ -185,6 +186,12 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 updateConnectedState();
                 forceNeighborUpdates();
                 matterItemsStorage.refreshCache();
+                patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
+                try {
+                    updateRS2Patterns();
+                } catch (Exception patternEx) {
+                    LOGGER.error("Bridge: Pattern update failed during initialization", patternEx);
+                }
                 if (Config.enableDebugLogging) {
                     LOGGER.info("Bridge: RS2 node initialized successfully at {}", worldPosition);
                 }
@@ -363,6 +370,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                         
                         String taskId = task.getUuid().toString();
                         network.getTaskManager().getPendingTasks().put(taskId, task);
+                        if (level instanceof ServerLevel serverLevel) {
+                            network.onTaskValueChanged(task, serverLevel);
+                        }
                         
                         TaskSourceInfo info = new TaskSourceInfo(itemStack, sourceId);
                         Map<String, TaskSourceInfo> sourceTasks = activeTasks.getOrDefault(sourceId, new HashMap<>());
@@ -523,6 +533,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
         final Map<ItemStack, Integer> globalRequests = patternRequests.computeIfAbsent(sourceId, id -> new HashMap<>());
         globalRequests.merge(output, 1, Integer::sum);
+
+        // Fast-track processing so tasks are created on the next tick.
+        requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
     }
 
     private List<ReplicationPatternTemplate> collectReplicationTemplates() {
@@ -949,7 +962,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
         @Override
         public Amount compositeExtract(ResourceKey resource, long amount, Action action, Actor actor) {
-            return Amount.ZERO;
+            long extracted = extract(resource, amount, action, actor);
+            if (extracted == 0) {
+                return Amount.ZERO;
+            }
+            return new Amount(extracted, extracted);
         }
 
         public void refreshCache() {
