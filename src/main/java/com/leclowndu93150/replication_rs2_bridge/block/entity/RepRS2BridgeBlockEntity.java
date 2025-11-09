@@ -17,10 +17,11 @@ import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.NetworkManager;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import com.hrznstudio.titanium.component.inventory.InventoryComponent;
-import com.leclowndu93150.replication_rs2_bridge.Config;
 import com.leclowndu93150.replication_rs2_bridge.block.ModBlocks;
 import com.leclowndu93150.replication_rs2_bridge.block.custom.RepRS2BridgeBlock;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
+import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
+import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.Ingredient;
 import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
@@ -69,7 +70,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.util.*;
@@ -116,6 +116,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     
     final MatterItemsStorage matterItemsStorage = new MatterItemsStorage();
     private boolean needsTaskRescan = false;
+    private final Map<String, Map<IMatterType, Long>> allocatedMatterByTask = new HashMap<>();
     private static final int TASK_SNAPSHOT_SAVE_INTERVAL = 20;
     private int taskSnapshotSaveTicks = 0;
     private boolean hadActiveRsTasks = false;
@@ -406,7 +407,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                         sourceRequests.put(itemStack, currentPatternRequests + count);
                         patternRequestsBySource.put(sourceId, sourceRequests);
                         
-                        extractMatterForTask(pattern, count);
+                        extractMatterForTask(pattern, count, taskId);
                         break;
                     }
                 }
@@ -427,18 +428,16 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return info;
     }
 
-    private void extractMatterForTask(MatterPattern pattern, int count) {
+    private void extractMatterForTask(MatterPattern pattern, int count, String taskId) {
         var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
         if (matterCompound != null) {
+            Map<IMatterType, Long> allocated = new HashMap<>();
             for (MatterValue matterValue : matterCompound.getValues().values()) {
                 var matterType = matterValue.getMatter();
                 var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
-                
-                Item matterItem = getItemForMatterType(matterType);
-                if (matterItem != null) {
-                    matterItemsStorage.extractVirtual(matterItem, matterAmount);
-                }
+                allocated.put(matterType, matterAmount);
             }
+            allocatedMatterByTask.put(taskId, allocated);
         }
     }
 
@@ -890,6 +889,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 for (String replicationTaskId : replicationTaskIds) {
                     replicationNetwork.cancelTask(replicationTaskId, serverLevel);
                     sourceTasks.remove(replicationTaskId);
+                    allocatedMatterByTask.remove(replicationTaskId);
                 }
                 
                 if (sourceTasks.isEmpty()) {
@@ -901,6 +901,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                     sourceRequests.clear();
                 }
                 
+                matterItemsStorage.refreshCache();
+                networkNode.refreshStorageInNetwork();
                 setChanged();
             }
         }
@@ -1018,13 +1020,22 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                         ReplicationRegistry.Matter.LIVING.get()
                 );
                 
+                Map<IMatterType, Long> totalAllocated = new HashMap<>();
+                for (Map<IMatterType, Long> taskAllocation : allocatedMatterByTask.values()) {
+                    for (Map.Entry<IMatterType, Long> entry : taskAllocation.entrySet()) {
+                        totalAllocated.merge(entry.getKey(), entry.getValue(), Long::sum);
+                    }
+                }
+                
                 for (IMatterType matterType : matterTypes) {
                     long amount = network.calculateMatterAmount(matterType);
-                    if (amount > 0) {
+                    long allocated = totalAllocated.getOrDefault(matterType, 0L);
+                    long available = amount - allocated;
+                    if (available > 0) {
                         Item item = getItemForMatterType(matterType);
                         if (item != null) {
                             ItemResource resource = new ItemResource(item);
-                            amounts.add(new ResourceAmount(resource, amount));
+                            amounts.add(new ResourceAmount(resource, available));
                         }
                     }
                 }

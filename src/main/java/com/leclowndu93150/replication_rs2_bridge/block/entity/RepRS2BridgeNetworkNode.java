@@ -1,7 +1,8 @@
 package com.leclowndu93150.replication_rs2_bridge.block.entity;
 
 import com.buuz135.replication.api.IMatterType;
-import com.leclowndu93150.replication_rs2_bridge.Config;
+import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
+import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
 import com.refinedmods.refinedstorage.api.autocrafting.PatternBuilder;
@@ -136,6 +137,17 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
 
     public void setStepBehavior(final StepBehavior behavior) {
         this.stepBehavior = behavior;
+    }
+
+    public void refreshStorageInNetwork() {
+        if (network == null || !isActive()) {
+            return;
+        }
+        final StorageNetworkComponent storage = network.getComponent(StorageNetworkComponent.class);
+        if (storage != null) {
+            storage.removeSource(getStorage());
+            storage.addSource(getStorage());
+        }
     }
 
     public void updatePatterns(final List<ReplicationPatternTemplate> templates) {

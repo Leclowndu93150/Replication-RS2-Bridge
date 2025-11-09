@@ -1,4 +1,4 @@
-package com.leclowndu93150.replication_rs2_bridge.block.entity;
+package com.leclowndu93150.replication_rs2_bridge.record;
 
 import com.buuz135.replication.api.IMatterType;
 import net.minecraft.core.registries.BuiltInRegistries;
