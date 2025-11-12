@@ -261,6 +261,15 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
         return tasks.getStatuses();
     }
 
+    @Nullable
+    TaskId peekActiveTaskId() {
+        final List<TaskStatus> statuses = tasks.getStatuses();
+        if (statuses.isEmpty()) {
+            return null;
+        }
+        return statuses.get(statuses.size() - 1).info().id();
+    }
+
     @Override
     public long getAmount(final ResourceKey resource) {
         return tasks.getAmount(resource);

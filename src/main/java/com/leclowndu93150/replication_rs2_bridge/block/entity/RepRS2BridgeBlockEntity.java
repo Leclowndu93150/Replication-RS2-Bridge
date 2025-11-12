@@ -91,6 +91,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final int REQUEST_ACCUMULATION_TICKS = 100;
     private static final int INITIALIZATION_DELAY = 60;
     private static final int PATTERN_UPDATE_INTERVAL = 100;
+    private static final int TASK_CHUNK_TARGET = 32;
     private static final String TAG_LOCAL_REQUEST_COUNTERS = "LocalRequestCounters";
     private static final String TAG_LOCAL_PATTERN_REQUESTS = "LocalPatternRequests";
     private static final String TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE = "LocalPatternRequestsBySource";
@@ -383,62 +384,94 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                     int count = entry.getValue();
                     
                     if (count > 0) {
-                        createReplicationTask(network, itemStack, count, sourceId);
+                        createReplicationTasks(network, itemStack, count, sourceId);
                     }
                 }
             }
         }
     }
 
-    private void createReplicationTask(MatterNetwork network, ItemStack itemStack, int count, UUID sourceId) {
+    private void createReplicationTasks(final MatterNetwork network,
+                                        final ItemStack itemStack,
+                                        final int totalCount,
+                                        final UUID sourceId) {
+        final List<MatterPattern> patterns = findMatchingPatterns(network, itemStack);
+        if (patterns.isEmpty()) {
+            LOGGER.warn("Bridge: No replication pattern found for {} ({} requests)", itemStack.getDisplayName().getString(), totalCount);
+            return;
+        }
+
+        final int replicatorCount = Math.max(1, network.getReplicators().size());
+        final int taskCount;
+        if (replicatorCount <= 1) {
+            taskCount = 1;
+        } else {
+            final int tasksByChunk = Math.max(1, (int) Math.ceil(totalCount / (double) TASK_CHUNK_TARGET));
+            taskCount = Math.min(totalCount, Math.max(replicatorCount, tasksByChunk));
+        }
+
+        int remaining = totalCount;
+        for (int i = 0; i < taskCount; i++) {
+            final int tasksLeft = taskCount - i;
+            final int amountForTask = Math.max(1, (int) Math.ceil(remaining / (double) tasksLeft));
+            final MatterPattern pattern = patterns.get(i % patterns.size());
+            spawnReplicationTask(network, pattern, itemStack, amountForTask, sourceId);
+            remaining -= amountForTask;
+        }
+    }
+
+    private List<MatterPattern> findMatchingPatterns(final MatterNetwork network, final ItemStack requestedStack) {
+        final List<MatterPattern> matches = new ArrayList<>();
         for (NetworkElement chipSupplier : network.getChipSuppliers()) {
             var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
             if (tile instanceof ChipStorageBlockEntity chipStorage) {
                 for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
-                    if (pattern.getStack().getItem().equals(itemStack.getItem())) {
-                        ReplicationTask task = new ReplicationTask(
-                                pattern.getStack(),
-                                count,
-                                IReplicationTask.Mode.MULTIPLE,
-                                this.worldPosition,
-                                false
-                        );
-                        
-                        String taskId = task.getUuid().toString();
-                        network.getTaskManager().getPendingTasks().put(taskId, task);
-                        if (level instanceof ServerLevel serverLevel) {
-                            network.onTaskValueChanged(task, serverLevel);
-                        }
-
-                        TaskSourceInfo info = getTaskSourceInfo(itemStack, sourceId);
-                        Map<String, TaskSourceInfo> sourceTasks = activeTasks.getOrDefault(sourceId, new HashMap<>());
-                        sourceTasks.put(taskId, info);
-                        activeTasks.put(sourceId, sourceTasks);
-                        
-                        Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.getOrDefault(sourceId, new HashMap<>());
-                        int currentPatternRequests = sourceRequests.getOrDefault(itemStack, 0);
-                        sourceRequests.put(itemStack, currentPatternRequests + count);
-                        patternRequestsBySource.put(sourceId, sourceRequests);
-                        
-                        extractMatterForTask(pattern, count, taskId);
-                        break;
+                    if (ItemStack.isSameItemSameComponents(pattern.getStack(), requestedStack)) {
+                        matches.add(pattern);
                     }
                 }
             }
         }
+        return matches;
+    }
+
+    private void spawnReplicationTask(final MatterNetwork network,
+                                      final MatterPattern pattern,
+                                      final ItemStack requestedStack,
+                                      final int amount,
+                                      final UUID sourceId) {
+        ReplicationTask task = new ReplicationTask(
+            pattern.getStack().copy(),
+            amount,
+            IReplicationTask.Mode.MULTIPLE,
+            this.worldPosition,
+            false
+        );
+
+        final String taskId = task.getUuid().toString();
+        network.getTaskManager().getPendingTasks().put(taskId, task);
+        if (level instanceof ServerLevel serverLevel) {
+            network.onTaskValueChanged(task, serverLevel);
+        }
+
+        final TaskSourceInfo info = getTaskSourceInfo(requestedStack, sourceId);
+        final Map<String, TaskSourceInfo> sourceTasks = activeTasks.computeIfAbsent(sourceId, id -> new HashMap<>());
+        sourceTasks.put(taskId, info);
+
+        final Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.computeIfAbsent(sourceId, id -> new HashMap<>());
+        final int currentPatternRequests = sourceRequests.getOrDefault(requestedStack, 0);
+        sourceRequests.put(requestedStack, currentPatternRequests + amount);
+        patternRequestsBySource.put(sourceId, sourceRequests);
+
+        extractMatterForTask(pattern, amount, taskId);
     }
 
     private @NotNull TaskSourceInfo getTaskSourceInfo(ItemStack itemStack, UUID sourceId) {
         TaskId rs2TaskId = null;
-        if (networkNode != null && networkNode.getNetwork() != null) {
-            var rs2Tasks = networkNode.getTaskSnapshots();
-            if (!rs2Tasks.isEmpty()) {
-                rs2TaskId = rs2Tasks.get(rs2Tasks.size() - 1).id();
-            }
+        if (networkNode != null) {
+            rs2TaskId = networkNode.peekActiveTaskId();
         }
-
-        TaskSourceInfo info = new TaskSourceInfo(itemStack, sourceId, rs2TaskId);
-        return info;
+        return new TaskSourceInfo(itemStack, sourceId, rs2TaskId);
     }
 
     private void extractMatterForTask(MatterPattern pattern, int count, String taskId) {
@@ -841,28 +874,36 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             }
         }
         
-        if (!replicationTaskIds.isEmpty()) {
-            MatterNetwork replicationNetwork = getNetwork();
-            if (replicationNetwork != null && level instanceof ServerLevel serverLevel) {
-                for (String replicationTaskId : replicationTaskIds) {
-                    replicationNetwork.cancelTask(replicationTaskId, serverLevel);
-                    sourceTasks.remove(replicationTaskId);
-                    allocatedMatterByTask.remove(replicationTaskId);
+        if (replicationTaskIds.isEmpty()) {
+            return;
+        }
+        
+        MatterNetwork replicationNetwork = getNetwork();
+        if (replicationNetwork != null && level instanceof ServerLevel serverLevel) {
+            for (String replicationTaskId : replicationTaskIds) {
+                replicationNetwork.cancelTask(replicationTaskId, serverLevel);
+                
+                TaskSourceInfo info = sourceTasks.remove(replicationTaskId);
+                if (info != null && info.getItemStack() != null) {
+                    Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.get(blockId);
+                    if (sourceRequests != null) {
+                        sourceRequests.remove(info.getItemStack());
+                        if (sourceRequests.isEmpty()) {
+                            patternRequestsBySource.remove(blockId);
+                        }
+                    }
                 }
                 
-                if (sourceTasks.isEmpty()) {
-                    activeTasks.remove(blockId);
-                }
-                
-                Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.get(blockId);
-                if (sourceRequests != null) {
-                    sourceRequests.clear();
-                }
-                
-                matterItemsStorage.refreshCache();
-                networkNode.refreshStorageInNetwork();
-                setChanged();
+                allocatedMatterByTask.remove(replicationTaskId);
             }
+            
+            if (sourceTasks.isEmpty()) {
+                activeTasks.remove(blockId);
+            }
+            
+            matterItemsStorage.refreshCache();
+            networkNode.refreshStorageInNetwork();
+            setChanged();
         }
     }
 
@@ -1482,10 +1523,16 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             return;
         }
         Map<String, TaskSourceInfo> tasks = activeTasks.computeIfAbsent(blockId, id -> new HashMap<>());
+        Map<String, TaskSourceInfo> previous = new HashMap<>(tasks);
         tasks.clear();
         network.getTaskManager().getPendingTasks().forEach((taskId, task) -> {
             if (task != null && task.getSource() != null && task.getSource().equals(worldPosition)) {
-                tasks.put(taskId, new TaskSourceInfo(task.getReplicatingStack(), blockId));
+                TaskSourceInfo existing = previous.get(taskId);
+                if (existing != null) {
+                    tasks.put(taskId, new TaskSourceInfo(task.getReplicatingStack(), existing.getSourceId(), existing.getRs2TaskId()));
+                } else {
+                    tasks.put(taskId, new TaskSourceInfo(task.getReplicatingStack(), blockId));
+                }
             }
         });
     }
