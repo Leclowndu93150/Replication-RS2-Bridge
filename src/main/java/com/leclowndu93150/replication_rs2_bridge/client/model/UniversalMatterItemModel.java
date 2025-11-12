@@ -10,7 +10,6 @@ import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.model.ItemOverrides;
-import net.minecraft.client.renderer.block.model.ItemTransforms;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.*;
 import net.minecraft.resources.ResourceLocation;
@@ -19,13 +18,8 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.client.NeoForgeRenderTypes;
 import net.neoforged.neoforge.client.RenderTypeGroup;
-import net.neoforged.neoforge.client.model.CompositeModel;
 import net.neoforged.neoforge.client.model.IModelBuilder;
-import net.neoforged.neoforge.client.model.SimpleModelState;
-import net.neoforged.neoforge.client.model.generators.CustomLoaderBuilder;
-import net.neoforged.neoforge.client.model.generators.ItemModelBuilder;
 import net.neoforged.neoforge.client.model.geometry.*;
-import net.neoforged.neoforge.common.data.ExistingFileHelper;
 import org.jetbrains.annotations.Nullable;
 
 import javax.annotation.ParametersAreNonnullByDefault;
@@ -62,7 +56,7 @@ public record UniversalMatterItemModel(String defaultMatterType) implements IUnb
         if (info != null) {
             return info.texture();
         }
-        return ResourceLocation.fromNamespaceAndPath("replication", "textures/gui/mattertypes/" + matterTypeName.toLowerCase() + ".png");
+        return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + matterTypeName.toLowerCase());
     }
 
     public static class Loader implements IGeometryLoader<UniversalMatterItemModel> {
@@ -70,13 +64,6 @@ public record UniversalMatterItemModel(String defaultMatterType) implements IUnb
         public UniversalMatterItemModel read(JsonObject json, JsonDeserializationContext context) {
             String defaultType = json.has("default_matter") ? json.get("default_matter").getAsString() : "empty";
             return new UniversalMatterItemModel(defaultType);
-        }
-    }
-
-    public static class LoaderBuilder extends CustomLoaderBuilder<ItemModelBuilder> {
-        public LoaderBuilder(ItemModelBuilder parent, ExistingFileHelper existingFileHelper) {
-            super(ResourceLocation.fromNamespaceAndPath(ReplicationRSBridge.MODID, "universal_matter"), 
-                    parent, existingFileHelper, false);
         }
     }
 

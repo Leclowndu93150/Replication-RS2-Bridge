@@ -7,10 +7,10 @@ import com.leclowndu93150.replication_rs2_bridge.block.ModBlocks;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.ModBlockEntities;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
 import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
+import com.leclowndu93150.replication_rs2_bridge.item.ModCreativeTabs;
 import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
-import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -23,7 +23,6 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
-import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import org.slf4j.Logger;
@@ -44,7 +43,7 @@ public class ReplicationRSBridge {
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
-        com.leclowndu93150.replication_rs2_bridge.item.ModCreativeTabs.register(modEventBus);
+        ModCreativeTabs.register(modEventBus);
 
         modEventBus.addListener(this::registerCapabilities);
     }
@@ -71,7 +70,8 @@ public class ReplicationRSBridge {
         RepRS2BridgeBlockEntity.setWorldUnloading(true);
     }
 
-    @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+
+    @EventBusSubscriber(modid = MODID, value = Dist.CLIENT)
     public static class ClientModEvents {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {

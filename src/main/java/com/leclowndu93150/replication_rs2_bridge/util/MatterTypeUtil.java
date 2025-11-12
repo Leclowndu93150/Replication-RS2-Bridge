@@ -20,11 +20,13 @@ public class MatterTypeUtil {
     public static void loadAllMatters() {
         MATTER_CACHE.clear();
         MATTER_BY_TYPE.clear();
-        
-        LOGGER.info("RepRS2Bridge: Loading matter types...");
-        
+
         try {
             Registry<IMatterType> registry = ReplicationRegistry.MATTER_TYPES_REGISTRY;
+            if (registry == null) {
+                LOGGER.warn("RepRS2Bridge: Matter type registry not ready, skipping texture registration for now.");
+                return;
+            }
             
             for (var entry : registry.entrySet()) {
                 ResourceLocation id = entry.getKey().location();
@@ -53,7 +55,7 @@ public class MatterTypeUtil {
     private static ResourceLocation resolveTexture(ResourceLocation id, String name) {
         return ResourceLocation.fromNamespaceAndPath(
                 id.getNamespace(),
-                "textures/gui/mattertypes/" + name.toLowerCase() + ".png"
+                "gui/mattertypes/" + name.toLowerCase()
         );
     }
 

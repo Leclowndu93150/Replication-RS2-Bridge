@@ -6,6 +6,7 @@ import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
 import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -53,16 +54,22 @@ public class UniversalMatterItem extends Item {
 
     public static ItemStack createMatterStack(IMatterType matterType, int count) {
         var info = MatterTypeUtil.getMatterInfo(matterType);
-        if (info == null) {
-            return ItemStack.EMPTY;
+        
+        String name = matterType.getName();
+        float[] color = matterType.getColor().get();
+        ResourceLocation texture;
+        
+        if (info != null) {
+            texture = info.texture();
+        } else {
+            texture = ResourceLocation.fromNamespaceAndPath(
+                    "replication",
+                    "gui/mattertypes/" + name.toLowerCase()
+            );
         }
         
         ItemStack stack = new ItemStack(ModItems.UNIVERSAL_MATTER.get(), count);
-        MatterComponent component = new MatterComponent(
-                info.name(),
-                info.texture(),
-                info.color()
-        );
+        MatterComponent component = new MatterComponent(name, texture, color);
         stack.set(ModDataComponents.MATTER.get(), component);
         return stack;
     }

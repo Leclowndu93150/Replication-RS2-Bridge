@@ -1,6 +1,5 @@
 package com.leclowndu93150.replication_rs2_bridge.block.custom;
 
-import com.buuz135.replication.block.MatterPipeBlock;
 import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.INetworkDirectionalConnection;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
@@ -8,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.Containers;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -21,6 +21,7 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.Nullable;
 
 public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> implements INetworkDirectionalConnection {
     public static final VoxelShape SHAPE = box(0, 0, 0, 16, 16, 16);
@@ -55,11 +56,11 @@ public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> i
 
     @Override
     public BlockEntityType.BlockEntitySupplier<?> getTileEntityFactory() {
-        return (pos, state) -> new RepRS2BridgeBlockEntity(pos, state);
+        return RepRS2BridgeBlockEntity::new;
     }
     
     @Override
-    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @org.jetbrains.annotations.Nullable net.minecraft.world.entity.LivingEntity entity, ItemStack stack) {
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity entity, ItemStack stack) {
         super.setPlacedBy(level, pos, state, entity, stack);
         
         if (!level.isClientSide() && level.getBlockEntity(pos) instanceof RepRS2BridgeBlockEntity blockEntity) {
