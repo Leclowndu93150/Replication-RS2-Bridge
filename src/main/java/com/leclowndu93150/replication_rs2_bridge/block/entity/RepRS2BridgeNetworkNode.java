@@ -1,6 +1,7 @@
 package com.leclowndu93150.replication_rs2_bridge.block.entity;
 
 import com.buuz135.replication.api.IMatterType;
+import com.leclowndu93150.replication_rs2_bridge.item.UniversalMatterItem;
 import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
 import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
 import com.mojang.logging.LogUtils;
@@ -215,12 +216,12 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     private Pattern createPattern(final ReplicationPatternTemplate template) {
         final PatternBuilder builder = PatternBuilder.pattern(PatternType.EXTERNAL);
         for (Map.Entry<IMatterType, Long> entry : template.matterCost().entrySet()) {
-            final Item item = blockEntity.getItemForMatterType(entry.getKey());
-            if (item == null) {
+            final ItemStack matterStack = UniversalMatterItem.createMatterStack(entry.getKey(), 1);
+            if (matterStack.isEmpty()) {
                 LOGGER.warn("Skipping pattern for {} due to missing matter item {}", template.outputStack(), entry.getKey().getName());
                 return null;
             }
-            builder.ingredient(new ItemResource(item), entry.getValue());
+            builder.ingredient(ItemResource.ofItemStack(matterStack), entry.getValue());
         }
         final ItemStack output = template.outputStack();
         builder.output(ItemResource.ofItemStack(output), output.getCount());

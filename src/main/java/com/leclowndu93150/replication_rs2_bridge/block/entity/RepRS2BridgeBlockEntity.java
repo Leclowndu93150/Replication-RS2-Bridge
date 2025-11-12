@@ -19,9 +19,13 @@ import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import com.hrznstudio.titanium.component.inventory.InventoryComponent;
 import com.leclowndu93150.replication_rs2_bridge.block.ModBlocks;
 import com.leclowndu93150.replication_rs2_bridge.block.custom.RepRS2BridgeBlock;
+import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
+import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
+import com.leclowndu93150.replication_rs2_bridge.item.UniversalMatterItem;
 import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
 import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
+import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.Ingredient;
 import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
@@ -388,7 +392,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                                 pattern.getStack(),
                                 count,
                                 IReplicationTask.Mode.MULTIPLE,
-                                this.worldPosition
+                                this.worldPosition,
+                                false
                         );
                         
                         String taskId = task.getUuid().toString();
@@ -805,39 +810,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     Item getItemForMatterType(IMatterType type) {
-        String name = type.getName();
-        if (name.equalsIgnoreCase("earth")) return ModItems.EARTH_MATTER.get();
-        if (name.equalsIgnoreCase("nether")) return ModItems.NETHER_MATTER.get();
-        if (name.equalsIgnoreCase("organic")) return ModItems.ORGANIC_MATTER.get();
-        if (name.equalsIgnoreCase("ender")) return ModItems.ENDER_MATTER.get();
-        if (name.equalsIgnoreCase("metallic")) return ModItems.METALLIC_MATTER.get();
-        if (name.equalsIgnoreCase("precious")) return ModItems.PRECIOUS_MATTER.get();
-        if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
-        if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
-        return null;
+        return ModItems.UNIVERSAL_MATTER.get();
     }
 
     private boolean isVirtualMatterItem(Item item) {
-        return item == ModItems.EARTH_MATTER.get()
-                || item == ModItems.NETHER_MATTER.get()
-                || item == ModItems.ORGANIC_MATTER.get()
-                || item == ModItems.ENDER_MATTER.get()
-                || item == ModItems.METALLIC_MATTER.get()
-                || item == ModItems.PRECIOUS_MATTER.get()
-                || item == ModItems.LIVING_MATTER.get()
-                || item == ModItems.QUANTUM_MATTER.get();
-    }
-
-    private IMatterType getMatterTypeForItem(Item item) {
-        if (item == ModItems.EARTH_MATTER.get()) return ReplicationRegistry.Matter.EARTH.get();
-        if (item == ModItems.NETHER_MATTER.get()) return ReplicationRegistry.Matter.NETHER.get();
-        if (item == ModItems.ORGANIC_MATTER.get()) return ReplicationRegistry.Matter.ORGANIC.get();
-        if (item == ModItems.ENDER_MATTER.get()) return ReplicationRegistry.Matter.ENDER.get();
-        if (item == ModItems.METALLIC_MATTER.get()) return ReplicationRegistry.Matter.METALLIC.get();
-        if (item == ModItems.PRECIOUS_MATTER.get()) return ReplicationRegistry.Matter.PRECIOUS.get();
-        if (item == ModItems.LIVING_MATTER.get()) return ReplicationRegistry.Matter.LIVING.get();
-        if (item == ModItems.QUANTUM_MATTER.get()) return ReplicationRegistry.Matter.QUANTUM.get();
-        return null;
+        return item == ModItems.UNIVERSAL_MATTER.get();
     }
 
     public InventoryComponent<RepRS2BridgeBlockEntity> getOutput() {
@@ -971,20 +948,24 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             }
 
             if (actor instanceof PlayerActor) {
-                // Prevent players from pulling virtual matter directly from the grid.
                 return 0;
             }
             
             if (resource instanceof ItemResource itemResource) {
                 Item item = itemResource.item();
-                if (isVirtualMatterItem(item)) {
+                if (item == ModItems.UNIVERSAL_MATTER.get()) {
                     MatterNetwork network = getNetwork();
                     if (network != null) {
-                        IMatterType matterType = getMatterTypeForItem(item);
-                        if (matterType != null) {
-                            long available = network.calculateMatterAmount(matterType);
-                            long toExtract = Math.min(amount, available);
-                            return toExtract;
+                        ItemStack stack = itemResource.toItemStack(1);
+                        MatterComponent component =
+                                stack.get(ModDataComponents.MATTER.get());
+                        if (component != null) {
+                            IMatterType matterType = MatterTypeUtil.getMatterTypeFromComponent(component);
+                            if (matterType != null) {
+                                long available = network.calculateMatterAmount(matterType);
+                                long toExtract = Math.min(amount, available);
+                                return toExtract;
+                            }
                         }
                     }
                 }
@@ -1032,9 +1013,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                     long allocated = totalAllocated.getOrDefault(matterType, 0L);
                     long available = amount - allocated;
                     if (available > 0) {
-                        Item item = getItemForMatterType(matterType);
-                        if (item != null) {
-                            ItemResource resource = new ItemResource(item);
+                        ItemStack matterStack = UniversalMatterItem.createMatterStack(matterType, 1);
+                        if (!matterStack.isEmpty()) {
+                            ItemResource resource = ItemResource.ofItemStack(matterStack);
                             amounts.add(new ResourceAmount(resource, available));
                         }
                     }

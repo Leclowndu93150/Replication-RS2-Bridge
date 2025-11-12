@@ -6,6 +6,8 @@ import com.hrznstudio.titanium.block_network.element.NetworkElementRegistry;
 import com.leclowndu93150.replication_rs2_bridge.block.ModBlocks;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.ModBlockEntities;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
+import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
+import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
 import net.minecraft.world.item.CreativeModeTabs;
@@ -38,6 +40,7 @@ public class ReplicationRSBridge {
         
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
+        ModDataComponents.register(modEventBus);
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
@@ -60,6 +63,7 @@ public class ReplicationRSBridge {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         RepRS2BridgeBlockEntity.setWorldUnloading(false);
+        MatterTypeUtil.loadAllMatters();
     }
 
     @SubscribeEvent
