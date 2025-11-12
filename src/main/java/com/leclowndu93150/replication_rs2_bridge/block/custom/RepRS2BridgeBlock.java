@@ -103,9 +103,16 @@ public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> i
     public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
         if (!level.isClientSide() && !player.isCreative()) {
             BlockEntity blockEntity = level.getBlockEntity(pos);
-            if (blockEntity instanceof RepRS2BridgeBlockEntity) {
-                ItemStack drop = new ItemStack(this);
-                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
+            if (blockEntity instanceof RepRS2BridgeBlockEntity bridge) {
+                boolean connectedToReplication = false;
+                try {
+                    connectedToReplication = bridge.getNetwork() != null;
+                } catch (Exception ignored) {
+                }
+                if (!connectedToReplication) {
+                    ItemStack drop = new ItemStack(this);
+                    Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
+                }
             }
         }
         return super.playerWillDestroy(level, pos, state, player);
