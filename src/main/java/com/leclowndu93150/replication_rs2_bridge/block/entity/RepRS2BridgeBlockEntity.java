@@ -74,9 +74,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * BlockEntity for the RepRS2Bridge that connects the RS2 network with the Replication matter network
@@ -94,6 +96,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final String TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE = "LocalPatternRequestsBySource";
     private static final String TAG_LOCAL_ACTIVE_TASKS = "LocalActiveTasks";
     private static final String TAG_RS_TASK_SNAPSHOTS = "RsTaskSnapshots";
+    private static final String TAG_PATTERN_ID_MAPPINGS = "PatternIdMappings";
+    private static final String TAG_PATTERN_ID = "PatternId";
     
     private byte initialized = 0;
     private int initializationTicks = 0;
@@ -127,6 +131,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static boolean worldUnloading = false;
     private static final Set<RepRS2BridgeBlockEntity> activeBridges = new HashSet<>();
     private boolean rsNodeAttached = false;
+    private final Map<PatternSignature, UUID> patternIds = new HashMap<>();
 
     public RepRS2BridgeBlockEntity(BlockPos pos, BlockState state) {
         super((BasicTileBlock<RepRS2BridgeBlockEntity>) ModBlocks.REP_RS2_BRIDGE.get(),
@@ -240,7 +245,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
         rsNodeAttached = true;
         try {
-            updateRS2Patterns();
+            updateRS2Patterns(getNetwork());
         } catch (Exception patternEx) {
             LOGGER.error("Bridge: Pattern update failed during initialization", patternEx);
         }
@@ -321,14 +326,18 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
         
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
-            if (isActive() && replicationNetwork != null) {
-                try {
-                    updateRS2Patterns();
-                } catch (Exception e) {
-                    LOGGER.error("Bridge: Exception during pattern update: {}", e.getMessage());
+            boolean updated = false;
+            if (isActive()) {
+                if (replicationNetwork != null) {
+                    try {
+                        updateRS2Patterns(replicationNetwork);
+                        updated = true;
+                    } catch (Exception e) {
+                        LOGGER.error("Bridge: Exception during pattern update: {}", e.getMessage());
+                    }
                 }
             }
-            patternUpdateTicks = 0;
+            patternUpdateTicks = updated ? 0 : PATTERN_UPDATE_INTERVAL;
         } else {
             patternUpdateTicks++;
         }
@@ -445,11 +454,16 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
-    private void updateRS2Patterns() {
-        if (!isActive() || networkNode == null) {
+    private void updateRS2Patterns(@Nullable final MatterNetwork replicationNetwork) {
+        if (!isActive() || networkNode == null || replicationNetwork == null) {
             return;
         }
-        final List<ReplicationPatternTemplate> templates = collectReplicationTemplates();
+        final List<ReplicationPatternTemplate> templates = collectReplicationTemplates(replicationNetwork);
+        if (templates.isEmpty()) {
+            patternIds.clear();
+        } else {
+            patternIds.keySet().retainAll(templates.stream().map(ReplicationPatternTemplate::signature).collect(Collectors.toSet()));
+        }
         networkNode.updatePatterns(templates);
     }
 
@@ -576,9 +590,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
     }
 
-    private List<ReplicationPatternTemplate> collectReplicationTemplates() {
-        final MatterNetwork network = getNetwork();
-        if (network == null || level == null || level.isClientSide()) {
+    private List<ReplicationPatternTemplate> collectReplicationTemplates(final MatterNetwork network) {
+        if (level == null || level.isClientSide()) {
             return List.of();
         }
         final List<ReplicationPatternTemplate> templates = new ArrayList<>();
@@ -697,6 +710,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         saveLocalRequestState(tag, registries);
         saveLocalActiveTasks(tag, registries);
         saveTaskSnapshots(tag, registries);
+        savePatternIdMappings(tag);
     }
 
     @Override
@@ -713,6 +727,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         loadLocalRequestState(tag, registries);
         loadLocalActiveTasks(tag, registries);
         loadTaskSnapshots(tag, registries);
+        loadPatternIdMappings(tag);
         requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
         needsTaskRescan = true;
     }
@@ -896,6 +911,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     public NetworkNodeContainerProvider getContainerProvider() {
         return containerProvider;
+    }
+
+    UUID getOrCreatePatternId(final PatternSignature signature) {
+        return patternIds.computeIfAbsent(signature, key -> UUID.randomUUID());
     }
     
     private enum Rs2LifecycleState {
@@ -1310,6 +1329,19 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
+    private void savePatternIdMappings(final CompoundTag tag) {
+        if (patternIds.isEmpty()) {
+            return;
+        }
+        ListTag list = new ListTag();
+        patternIds.forEach((signature, id) -> {
+            CompoundTag entry = signature.save();
+            entry.putUUID(TAG_PATTERN_ID, id);
+            list.add(entry);
+        });
+        tag.put(TAG_PATTERN_ID_MAPPINGS, list);
+    }
+
     private void loadLocalActiveTasks(CompoundTag tag, HolderLookup.Provider registries) {
         if (blockId == null) {
             return;
@@ -1321,6 +1353,19 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             if (!tasks.isEmpty()) {
                 activeTasks.put(blockId, tasks);
             }
+        }
+    }
+
+    private void loadPatternIdMappings(final CompoundTag tag) {
+        patternIds.clear();
+        if (!tag.contains(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_LIST)) {
+            return;
+        }
+        ListTag list = tag.getList(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_COMPOUND);
+        for (Tag element : list) {
+            CompoundTag entry = (CompoundTag) element;
+            UUID patternId = entry.getUUID(TAG_PATTERN_ID);
+            patternIds.put(PatternSignature.load(entry), patternId);
         }
     }
 

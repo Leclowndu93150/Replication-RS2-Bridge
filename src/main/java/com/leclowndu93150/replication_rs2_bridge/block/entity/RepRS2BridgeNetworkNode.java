@@ -7,6 +7,7 @@ import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTempla
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
 import com.refinedmods.refinedstorage.api.autocrafting.PatternBuilder;
+import com.refinedmods.refinedstorage.api.autocrafting.PatternLayout;
 import com.refinedmods.refinedstorage.api.autocrafting.PatternType;
 import com.refinedmods.refinedstorage.api.autocrafting.status.TaskStatus;
 import com.refinedmods.refinedstorage.api.autocrafting.task.ExternalPatternSink;
@@ -30,13 +31,7 @@ import com.refinedmods.refinedstorage.api.resource.ResourceKey;
 import com.refinedmods.refinedstorage.api.storage.Storage;
 import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import javax.annotation.Nullable;
 
@@ -225,7 +220,9 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
         }
         final ItemStack output = template.outputStack();
         builder.output(ItemResource.ofItemStack(output), output.getCount());
-        return builder.build();
+        final UUID patternId = blockEntity.getOrCreatePatternId(template.signature());
+        final PatternLayout layout = builder.buildLayout();
+        return new Pattern(patternId, layout);
     }
 
     @Override
