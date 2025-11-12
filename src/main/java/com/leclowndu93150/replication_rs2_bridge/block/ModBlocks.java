@@ -20,7 +20,7 @@ public class ModBlocks {
 
     public static final DeferredBlock<Block> REP_RS2_BRIDGE = registerBlock("rep_rs2_bridge",
             () -> new RepRS2BridgeBlock(BlockBehaviour.Properties.of()
-                .strength(0.3F, 0.3F)
+                .strength(5.0F, 6.0F)
                 .sound(SoundType.COPPER)
                 .noOcclusion()));
 

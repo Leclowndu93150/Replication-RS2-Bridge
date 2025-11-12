@@ -8,13 +8,16 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.Containers;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
@@ -81,14 +84,31 @@ public class RepRS2BridgeBlock extends BasicTileBlock<RepRS2BridgeBlockEntity> i
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moving) {
         if (!state.is(newState.getBlock())) {
-            if (level.getBlockEntity(pos) instanceof RepRS2BridgeBlockEntity blockEntity) {
+            if (!level.isClientSide() && level.getBlockEntity(pos) instanceof RepRS2BridgeBlockEntity blockEntity) {
                 dropInventory(level, pos, blockEntity);
-                blockEntity.disconnectFromNetworks();
             }
-            level.removeBlockEntity(pos);
         }
         
         super.onRemove(state, level, pos, newState, moving);
+        
+        if (!state.is(newState.getBlock()) && !level.isClientSide()) {
+            for (Direction direction : Direction.values()) {
+                BlockPos neighborPos = pos.relative(direction);
+                level.updateNeighborsAt(neighborPos, this);
+            }
+        }
+    }
+    
+    @Override
+    public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
+        if (!level.isClientSide() && !player.isCreative()) {
+            BlockEntity blockEntity = level.getBlockEntity(pos);
+            if (blockEntity instanceof RepRS2BridgeBlockEntity) {
+                ItemStack drop = new ItemStack(this);
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
+            }
+        }
+        return super.playerWillDestroy(level, pos, state, player);
     }
 
     @Override

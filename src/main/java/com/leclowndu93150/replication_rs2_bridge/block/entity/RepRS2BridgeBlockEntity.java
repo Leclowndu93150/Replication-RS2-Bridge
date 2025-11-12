@@ -109,8 +109,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private final RepRS2BridgeNetworkNode networkNode;
     private final InWorldNetworkNodeContainer nodeContainer;
     private final NetworkNodeContainerProvider containerProvider;
-    private boolean nodeCreated = false;
-    private boolean shouldReconnect = false;
+    private Rs2NodeLifecycle nodeLifecycle;
     
     private final Map<UUID, Map<ItemStack, Integer>> patternRequests = new HashMap<>();
     private final Map<UUID, Map<String, TaskSourceInfo>> activeTasks = new HashMap<>();
@@ -127,6 +126,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     
     private static boolean worldUnloading = false;
     private static final Set<RepRS2BridgeBlockEntity> activeBridges = new HashSet<>();
+    private boolean rsNodeAttached = false;
 
     public RepRS2BridgeBlockEntity(BlockPos pos, BlockState state) {
         super((BasicTileBlock<RepRS2BridgeBlockEntity>) ModBlocks.REP_RS2_BRIDGE.get(),
@@ -148,8 +148,20 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 .connectionStrategy(new ColoredConnectionStrategy(this::getBlockState, worldPosition))
                 .build();
         this.containerProvider.addContainer(this.nodeContainer);
+        this.nodeLifecycle = new Rs2NodeLifecycle();
+        
+        this.initialized = 0;
+        this.initializationTicks = 0;
         
         activeBridges.add(this);
+    }
+
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        if (nodeLifecycle != null && level != null && !level.isClientSide()) {
+            nodeLifecycle.requestInitialization("clear_removed");
+        }
     }
 
     @NotNull
@@ -197,33 +209,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             }
         }
         
-        if (!nodeCreated && level != null && !level.isClientSide()) {
-            initializeRS2Node();
-        }
-    }
-
-    private void initializeRS2Node() {
-        if (level == null || level.isClientSide()) {
-            return;
-        }
-        try {
-            containerProvider.initialize(level, () -> {
-                nodeCreated = true;
-                shouldReconnect = false;
-                updateConnectedState();
-                forceNeighborUpdates();
-                matterItemsStorage.refreshCache();
-                patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
-                try {
-                    updateRS2Patterns();
-                } catch (Exception patternEx) {
-                    LOGGER.error("Bridge: Pattern update failed during initialization", patternEx);
-                }
-            });
-        } catch (Exception e) {
-            LOGGER.error("Failed to initialize RS2 node: {}", e.getMessage());
-            shouldReconnect = true;
-            level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
+        if (level != null && !level.isClientSide()) {
+            nodeLifecycle.requestInitialization("on_load");
         }
     }
 
@@ -241,10 +228,21 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 return;
             }
             
-            if (!nodeCreated) {
-                initializeRS2Node();
-            }
+            nodeLifecycle.requestInitialization("neighbor_change");
             updateConnectedState();
+        }
+    }
+
+    private void onRsNodeInitialized() {
+        updateConnectedState();
+        forceNeighborUpdates();
+        matterItemsStorage.refreshCache();
+        patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
+        rsNodeAttached = true;
+        try {
+            updateRS2Patterns();
+        } catch (Exception patternEx) {
+            LOGGER.error("Bridge: Pattern update failed during initialization", patternEx);
         }
     }
 
@@ -294,13 +292,14 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             return;
         }
         
+        if (nodeLifecycle != null) {
+            nodeLifecycle.tick();
+        }
+        
         MatterNetwork replicationNetwork = getNetwork();
         if (needsTaskRescan && replicationNetwork != null) {
             relinkActiveTasksFromNetwork(replicationNetwork);
             needsTaskRescan = false;
-        }
-        if (shouldReconnect && !nodeCreated) {
-            initializeRS2Node();
         }
         
         if (initialized == 0) {
@@ -708,8 +707,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         } else {
             blockId = UUID.randomUUID();
         }
-        nodeCreated = false;
-        shouldReconnect = true;
+        if (nodeLifecycle != null) {
+            nodeLifecycle.resetAfterDataLoad();
+        }
         loadLocalRequestState(tag, registries);
         loadLocalActiveTasks(tag, registries);
         loadTaskSnapshots(tag, registries);
@@ -720,60 +720,26 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     @Override
     public void setRemoved() {
         activeBridges.remove(this);
-        
-        try {
-            if (nodeContainer != null) {
-                RefinedStorageApi.INSTANCE.removeNetworkNodeContainer(nodeContainer, level);
-            }
-        } catch (Exception e) {
-            LOGGER.error("Bridge: Exception destroying RS2 node: {}", e.getMessage());
+        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+            nodeLifecycle.shutdown("set_removed", false);
         }
-        
         super.setRemoved();
-        nodeCreated = false;
-        shouldReconnect = false;
     }
 
     @Override
     public void onChunkUnloaded() {
-        try {
-            if (nodeContainer != null) {
-                RefinedStorageApi.INSTANCE.removeNetworkNodeContainer(nodeContainer, level);
-            }
-        } catch (Exception e) {
-            LOGGER.error("Bridge: Exception in onChunkUnloaded: {}", e.getMessage());
+        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+            nodeLifecycle.shutdown("chunk_unloaded", true);
         }
-        
         super.onChunkUnloaded();
-        nodeCreated = false;
-        shouldReconnect = false;
     }
 
     public void disconnectFromNetworks() {
-        if (level != null && !level.isClientSide() && nodeContainer != null) {
-            try {
-                RefinedStorageApi.INSTANCE.removeNetworkNodeContainer(nodeContainer, level);
-                nodeCreated = false;
-                shouldReconnect = false;
-            } catch (Exception e) {
-                LOGGER.warn("Bridge: Error disconnecting from RS2 network: {}", e.getMessage());
-            }
+        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+            nodeLifecycle.shutdown("manual_disconnect", false);
         }
-        
-        try {
-            if (level != null && !level.isClientSide()) {
-                NetworkManager networkManager = NetworkManager.get(level);
-                if (networkManager != null) {
-                    NetworkElement element = networkManager.getElement(worldPosition);
-                    if (element != null) {
-                        networkManager.removeElement(worldPosition);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warn("Bridge: Error disconnecting from Replication network: {}", e.getMessage());
-        }
-        updateConnectedState();
+        initialized = 0;
+        initializationTicks = 0;
     }
 
     public static void setWorldUnloading(boolean unloading) {
@@ -932,6 +898,142 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return containerProvider;
     }
     
+    private enum Rs2LifecycleState {
+        IDLE,
+        INITIALIZING,
+        READY,
+        WAITING_RETRY,
+        REMOVING,
+        REMOVED
+    }
+
+    private final class Rs2NodeLifecycle {
+        private static final long MAX_RETRY_DELAY = 200L;
+        private Rs2LifecycleState state = Rs2LifecycleState.IDLE;
+        private long retryAtTick = -1L;
+        private int attempts = 0;
+        private boolean initializationInFlight = false;
+
+        void requestInitialization(final String reason) {
+            if (!canAttemptInitialization()) {
+                return;
+            }
+            beginInitialization(reason);
+        }
+
+        void resetAfterDataLoad() {
+            initializationInFlight = false;
+            attempts = 0;
+            retryAtTick = -1L;
+            rsNodeAttached = false;
+            if (state != Rs2LifecycleState.REMOVED) {
+                state = Rs2LifecycleState.IDLE;
+            }
+        }
+
+        void tick() {
+            if (state != Rs2LifecycleState.WAITING_RETRY) {
+                return;
+            }
+            if (level == null || level.isClientSide()) {
+                return;
+            }
+            if (retryAtTick >= 0 && level.getGameTime() >= retryAtTick) {
+                beginInitialization("retry");
+            }
+        }
+
+        void shutdown(final String reason, final boolean allowRestart) {
+            initializationInFlight = false;
+            attempts = 0;
+            retryAtTick = -1L;
+            if (state == Rs2LifecycleState.REMOVED && !allowRestart) {
+                return;
+            }
+            state = Rs2LifecycleState.REMOVING;
+            final Rs2LifecycleState targetState = allowRestart ? Rs2LifecycleState.IDLE : Rs2LifecycleState.REMOVED;
+            if (level != null && !level.isClientSide() && rsNodeAttached) {
+                try {
+                    containerProvider.remove(level);
+                } catch (Exception e) {
+                    LOGGER.warn("Bridge: Failed to remove RS2 node during {}: {}", reason, e.getMessage());
+                } finally {
+                    rsNodeAttached = false;
+                }
+            }
+            state = targetState;
+        }
+
+        boolean isRemoved() {
+            return state == Rs2LifecycleState.REMOVED;
+        }
+
+        private boolean canAttemptInitialization() {
+            if (worldUnloading) {
+                return false;
+            }
+            if (level == null || level.isClientSide()) {
+                return false;
+            }
+            if (isRemoved() || state == Rs2LifecycleState.REMOVING || state == Rs2LifecycleState.REMOVED) {
+                return false;
+            }
+            if (initializationInFlight) {
+                return false;
+            }
+            if (state == Rs2LifecycleState.READY) {
+                return false;
+            }
+            if (state == Rs2LifecycleState.WAITING_RETRY && retryAtTick >= 0 && level.getGameTime() < retryAtTick) {
+                return false;
+            }
+            return true;
+        }
+
+        private void beginInitialization(final String reason) {
+            if (level == null || level.isClientSide() || isRemoved()) {
+                return;
+            }
+            initializationInFlight = true;
+            state = Rs2LifecycleState.INITIALIZING;
+            attempts++;
+            try {
+                containerProvider.initialize(level, () -> handleInitializationCallback(reason));
+            } catch (Exception e) {
+                handleInitializationFailure(reason, e);
+            }
+        }
+
+        private void handleInitializationCallback(final String reason) {
+            initializationInFlight = false;
+            if (level == null || level.isClientSide() || isRemoved() || worldUnloading
+                || state != Rs2LifecycleState.INITIALIZING) {
+                return;
+            }
+            try {
+                onRsNodeInitialized();
+                state = Rs2LifecycleState.READY;
+                retryAtTick = -1L;
+                attempts = 0;
+            } catch (Exception e) {
+                handleInitializationFailure(reason, e);
+            }
+        }
+
+        private void handleInitializationFailure(final String reason, final Exception exception) {
+            LOGGER.error("Bridge: RS2 node initialization failed ({}): {}", reason, exception.getMessage(), exception);
+            state = Rs2LifecycleState.WAITING_RETRY;
+            initializationInFlight = false;
+            rsNodeAttached = false;
+            if (level != null && !level.isClientSide()) {
+                long backoff = 20L * Math.max(1, Math.min(attempts, 6));
+                retryAtTick = level.getGameTime() + Math.min(MAX_RETRY_DELAY, backoff);
+            } else {
+                retryAtTick = -1L;
+            }
+        }
+    }
+
     public class MatterItemsStorage implements Storage, CompositeAwareChild {
         private ParentComposite parentComposite;
         private final Map<ResourceKey, Long> cachedAmounts = new HashMap<>();
