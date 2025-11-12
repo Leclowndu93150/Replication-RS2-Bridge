@@ -91,7 +91,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final int REQUEST_ACCUMULATION_TICKS = 100;
     private static final int INITIALIZATION_DELAY = 60;
     private static final int PATTERN_UPDATE_INTERVAL = 100;
-    private static final int TASK_CHUNK_TARGET = 32;
     private static final String TAG_LOCAL_REQUEST_COUNTERS = "LocalRequestCounters";
     private static final String TAG_LOCAL_PATTERN_REQUESTS = "LocalPatternRequests";
     private static final String TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE = "LocalPatternRequestsBySource";
@@ -400,24 +399,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             LOGGER.warn("Bridge: No replication pattern found for {} ({} requests)", itemStack.getDisplayName().getString(), totalCount);
             return;
         }
-
-        final int replicatorCount = Math.max(1, network.getReplicators().size());
-        final int taskCount;
-        if (replicatorCount <= 1) {
-            taskCount = 1;
-        } else {
-            final int tasksByChunk = Math.max(1, (int) Math.ceil(totalCount / (double) TASK_CHUNK_TARGET));
-            taskCount = Math.min(totalCount, Math.max(replicatorCount, tasksByChunk));
-        }
-
-        int remaining = totalCount;
-        for (int i = 0; i < taskCount; i++) {
-            final int tasksLeft = taskCount - i;
-            final int amountForTask = Math.max(1, (int) Math.ceil(remaining / (double) tasksLeft));
-            final MatterPattern pattern = patterns.get(i % patterns.size());
-            spawnReplicationTask(network, pattern, itemStack, amountForTask, sourceId);
-            remaining -= amountForTask;
-        }
+        final MatterPattern pattern = patterns.get(0);
+        spawnReplicationTask(network, pattern, itemStack, totalCount, sourceId);
     }
 
     private List<MatterPattern> findMatchingPatterns(final MatterNetwork network, final ItemStack requestedStack) {
