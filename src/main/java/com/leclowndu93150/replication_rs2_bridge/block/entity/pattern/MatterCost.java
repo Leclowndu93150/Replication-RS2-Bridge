@@ -1,4 +1,4 @@
-package com.leclowndu93150.replication_rs2_bridge.record;
+package com.leclowndu93150.replication_rs2_bridge.block.entity.pattern;
 
 import net.minecraft.nbt.CompoundTag;
 

@@ -2,8 +2,8 @@ package com.leclowndu93150.replication_rs2_bridge.block.entity;
 
 import com.buuz135.replication.api.IMatterType;
 import com.leclowndu93150.replication_rs2_bridge.item.UniversalMatterItem;
-import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
-import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.PatternSignature;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.ReplicationPatternTemplate;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
 import com.refinedmods.refinedstorage.api.autocrafting.PatternBuilder;
@@ -262,7 +262,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     }
 
     @Nullable
-    TaskId peekActiveTaskId() {
+    public TaskId peekActiveTaskId() {
         final List<TaskStatus> statuses = tasks.getStatuses();
         if (statuses.isEmpty()) {
             return null;

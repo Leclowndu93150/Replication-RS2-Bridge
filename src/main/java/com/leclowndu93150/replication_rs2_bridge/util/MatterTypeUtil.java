@@ -3,7 +3,6 @@ package com.leclowndu93150.replication_rs2_bridge.util;
 import com.buuz135.replication.ReplicationRegistry;
 import com.buuz135.replication.api.IMatterType;
 import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
-import com.leclowndu93150.replication_rs2_bridge.record.MatterTypeInfo;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;

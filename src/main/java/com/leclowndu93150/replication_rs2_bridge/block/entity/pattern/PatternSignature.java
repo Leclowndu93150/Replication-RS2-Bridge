@@ -1,20 +1,21 @@
-package com.leclowndu93150.replication_rs2_bridge.record;
-
-import com.buuz135.replication.api.IMatterType;
-import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
-import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.ItemStack;
+package com.leclowndu93150.replication_rs2_bridge.block.entity.pattern;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+
+import com.buuz135.replication.api.IMatterType;
+import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
+import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
+
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 
 public record PatternSignature(ResourceLocation outputItemId,
                                int outputCount,

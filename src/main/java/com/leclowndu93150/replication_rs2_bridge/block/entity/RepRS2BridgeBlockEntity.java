@@ -2,8 +2,6 @@ package com.leclowndu93150.replication_rs2_bridge.block.entity;
 
 import com.buuz135.replication.api.IMatterType;
 import com.buuz135.replication.api.pattern.MatterPattern;
-import com.buuz135.replication.api.task.IReplicationTask;
-import com.buuz135.replication.api.task.ReplicationTask;
 import com.buuz135.replication.block.tile.ChipStorageBlockEntity;
 import com.buuz135.replication.block.tile.ReplicationMachine;
 import com.buuz135.replication.block.MatterPipeBlock;
@@ -11,7 +9,6 @@ import com.buuz135.replication.calculation.MatterValue;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.DefaultMatterNetworkElement;
 import com.buuz135.replication.network.MatterNetwork;
-import com.buuz135.replication.ReplicationRegistry;
 import com.hrznstudio.titanium.annotation.Save;
 import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.NetworkManager;
@@ -19,21 +16,16 @@ import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import com.hrznstudio.titanium.component.inventory.InventoryComponent;
 import com.leclowndu93150.replication_rs2_bridge.block.ModBlocks;
 import com.leclowndu93150.replication_rs2_bridge.block.custom.RepRS2BridgeBlock;
-import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
-import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.lifecycle.Rs2NodeLifecycle;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.storage.MatterItemsStorage;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.PatternSignature;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.ReplicationPatternTemplate;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.task.ReplicationTaskHandler;
+import com.leclowndu93150.replication_rs2_bridge.block.entity.task.TaskSnapshotNbt;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
-import com.leclowndu93150.replication_rs2_bridge.item.UniversalMatterItem;
-import com.leclowndu93150.replication_rs2_bridge.record.PatternSignature;
-import com.leclowndu93150.replication_rs2_bridge.record.ReplicationPatternTemplate;
-import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.mojang.logging.LogUtils;
-import com.refinedmods.refinedstorage.api.autocrafting.Ingredient;
-import com.refinedmods.refinedstorage.api.autocrafting.Pattern;
-import com.refinedmods.refinedstorage.api.autocrafting.PatternLayout;
-import com.refinedmods.refinedstorage.api.autocrafting.PatternType;
 import com.refinedmods.refinedstorage.api.autocrafting.task.ExternalPatternSink;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskId;
-import com.refinedmods.refinedstorage.api.autocrafting.task.TaskState;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskSnapshot;
 import com.refinedmods.refinedstorage.api.core.Action;
 import com.refinedmods.refinedstorage.api.network.Network;
@@ -41,29 +33,17 @@ import com.refinedmods.refinedstorage.api.network.energy.EnergyNetworkComponent;
 import com.refinedmods.refinedstorage.api.network.node.NetworkNode;
 import com.refinedmods.refinedstorage.api.network.storage.StorageNetworkComponent;
 import com.refinedmods.refinedstorage.api.resource.ResourceAmount;
-import com.refinedmods.refinedstorage.api.resource.ResourceKey;
 import com.refinedmods.refinedstorage.api.storage.Actor;
-import com.refinedmods.refinedstorage.api.storage.Storage;
-import com.refinedmods.refinedstorage.api.storage.composite.CompositeAwareChild;
-import com.refinedmods.refinedstorage.api.storage.composite.ParentComposite;
-import com.refinedmods.refinedstorage.api.resource.list.MutableResourceList;
-import com.refinedmods.refinedstorage.api.resource.list.MutableResourceListImpl;
-import com.refinedmods.refinedstorage.api.resource.list.ResourceList;
 import com.refinedmods.refinedstorage.common.api.RefinedStorageApi;
 import com.refinedmods.refinedstorage.common.api.support.network.InWorldNetworkNodeContainer;
 import com.refinedmods.refinedstorage.common.api.support.network.NetworkNodeContainerProvider;
-import com.refinedmods.refinedstorage.common.api.storage.PlayerActor;
 import com.refinedmods.refinedstorage.common.support.network.ColoredConnectionStrategy;
 import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
-import com.refinedmods.refinedstorage.common.support.resource.ResourceCodecs;
-import com.refinedmods.refinedstorage.common.api.support.resource.PlatformResourceKey;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.InteractionHand;
@@ -88,13 +68,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     private static final Logger LOGGER = LogUtils.getLogger();
     
-    private static final int REQUEST_ACCUMULATION_TICKS = 100;
     private static final int INITIALIZATION_DELAY = 60;
     private static final int PATTERN_UPDATE_INTERVAL = 100;
-    private static final String TAG_LOCAL_REQUEST_COUNTERS = "LocalRequestCounters";
-    private static final String TAG_LOCAL_PATTERN_REQUESTS = "LocalPatternRequests";
-    private static final String TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE = "LocalPatternRequestsBySource";
-    private static final String TAG_LOCAL_ACTIVE_TASKS = "LocalActiveTasks";
     private static final String TAG_RS_TASK_SNAPSHOTS = "RsTaskSnapshots";
     private static final String TAG_PATTERN_ID_MAPPINGS = "PatternIdMappings";
     private static final String TAG_PATTERN_ID = "PatternId";
@@ -113,25 +88,17 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private final RepRS2BridgeNetworkNode networkNode;
     private final InWorldNetworkNodeContainer nodeContainer;
     private final NetworkNodeContainerProvider containerProvider;
-    private Rs2NodeLifecycle nodeLifecycle;
+    private final Rs2NodeLifecycle nodeLifecycle;
     
-    private final Map<UUID, Map<ItemStack, Integer>> patternRequests = new HashMap<>();
-    private final Map<UUID, Map<String, TaskSourceInfo>> activeTasks = new HashMap<>();
-    private final Map<UUID, Map<ItemStack, Integer>> patternRequestsBySource = new HashMap<>();
-    private final Map<UUID, Map<ItemWithSourceId, Integer>> requestCounters = new HashMap<>();
-    private int requestCounterTicks = 0;
-    
-    final MatterItemsStorage matterItemsStorage = new MatterItemsStorage();
-    private boolean needsTaskRescan = false;
-    private final Map<String, Map<IMatterType, Long>> allocatedMatterByTask = new HashMap<>();
+    private final MatterItemsStorage matterItemsStorage;
     private static final int TASK_SNAPSHOT_SAVE_INTERVAL = 20;
     private int taskSnapshotSaveTicks = 0;
     private boolean hadActiveRsTasks = false;
     
     private static boolean worldUnloading = false;
     private static final Set<RepRS2BridgeBlockEntity> activeBridges = new HashSet<>();
-    private boolean rsNodeAttached = false;
     private final Map<PatternSignature, UUID> patternIds = new HashMap<>();
+    private final ReplicationTaskHandler taskHandler;
 
     public RepRS2BridgeBlockEntity(BlockPos pos, BlockState state) {
         super((BasicTileBlock<RepRS2BridgeBlockEntity>) ModBlocks.REP_RS2_BRIDGE.get(),
@@ -153,7 +120,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 .connectionStrategy(new ColoredConnectionStrategy(this::getBlockState, worldPosition))
                 .build();
         this.containerProvider.addContainer(this.nodeContainer);
-        this.nodeLifecycle = new Rs2NodeLifecycle();
+        this.nodeLifecycle = new Rs2NodeLifecycle(this, containerProvider, LOGGER);
+        this.taskHandler = new ReplicationTaskHandler(this);
+        this.matterItemsStorage = new MatterItemsStorage(this, taskHandler);
         
         this.initialized = 0;
         this.initializationTicks = 0;
@@ -164,7 +133,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     @Override
     public void clearRemoved() {
         super.clearRemoved();
-        if (nodeLifecycle != null && level != null && !level.isClientSide()) {
+        if (level != null && !level.isClientSide()) {
             nodeLifecycle.requestInitialization("clear_removed");
         }
     }
@@ -238,12 +207,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
-    private void onRsNodeInitialized() {
+    public void onRsNodeInitializedFromLifecycle() {
         updateConnectedState();
         forceNeighborUpdates();
         matterItemsStorage.refreshCache();
         patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
-        rsNodeAttached = true;
         try {
             updateRS2Patterns(getNetwork());
         } catch (Exception patternEx) {
@@ -297,15 +265,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             return;
         }
         
-        if (nodeLifecycle != null) {
-            nodeLifecycle.tick();
-        }
+        nodeLifecycle.tick();
         
         MatterNetwork replicationNetwork = getNetwork();
-        if (needsTaskRescan && replicationNetwork != null) {
-            relinkActiveTasksFromNetwork(replicationNetwork);
-            needsTaskRescan = false;
-        }
+        taskHandler.tick(replicationNetwork);
         
         if (initialized == 0) {
             initializationTicks++;
@@ -342,18 +305,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             patternUpdateTicks++;
         }
         
-        if (requestCounterTicks >= REQUEST_ACCUMULATION_TICKS) {
-            try {
-                processAccumulatedRequests();
-                requestCounters.clear();
-                requestCounterTicks = 0;
-            } catch (Exception e) {
-                LOGGER.error("Bridge: Exception in request processing: {}", e.getMessage());
-            }
-        } else {
-            requestCounterTicks++;
-        }
-        
         if (replicationNetwork == null) {
             NetworkManager networkManager = NetworkManager.get(level);
             if (networkManager != null && networkManager.getElement(pos) == null) {
@@ -365,110 +316,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         tickTaskSnapshotPersistence();
     }
 
-    private void processAccumulatedRequests() {
-        if (worldUnloading) return;
-        
-        MatterNetwork network = getNetwork();
-        if (network != null && !requestCounters.isEmpty()) {
-            for (UUID sourceId : requestCounters.keySet()) {
-                if (worldUnloading) return;
-                
-                Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.get(sourceId);
-                
-                for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
-                    if (worldUnloading) return;
-                    
-                    ItemWithSourceId key = entry.getKey();
-                    ItemStack itemStack = key.getItemStack();
-                    int count = entry.getValue();
-                    
-                    if (count > 0) {
-                        createReplicationTasks(network, itemStack, count, sourceId);
-                    }
-                }
-            }
-        }
-    }
-
-    private void createReplicationTasks(final MatterNetwork network,
-                                        final ItemStack itemStack,
-                                        final int totalCount,
-                                        final UUID sourceId) {
-        final List<MatterPattern> patterns = findMatchingPatterns(network, itemStack);
-        if (patterns.isEmpty()) {
-            LOGGER.warn("Bridge: No replication pattern found for {} ({} requests)", itemStack.getDisplayName().getString(), totalCount);
-            return;
-        }
-        final MatterPattern pattern = patterns.get(0);
-        spawnReplicationTask(network, pattern, itemStack, totalCount, sourceId);
-    }
-
-    private List<MatterPattern> findMatchingPatterns(final MatterNetwork network, final ItemStack requestedStack) {
-        final List<MatterPattern> matches = new ArrayList<>();
-        for (NetworkElement chipSupplier : network.getChipSuppliers()) {
-            var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
-            if (tile instanceof ChipStorageBlockEntity chipStorage) {
-                for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
-                    if (ItemStack.isSameItemSameComponents(pattern.getStack(), requestedStack)) {
-                        matches.add(pattern);
-                    }
-                }
-            }
-        }
-        return matches;
-    }
-
-    private void spawnReplicationTask(final MatterNetwork network,
-                                      final MatterPattern pattern,
-                                      final ItemStack requestedStack,
-                                      final int amount,
-                                      final UUID sourceId) {
-        ReplicationTask task = new ReplicationTask(
-            pattern.getStack().copy(),
-            amount,
-            IReplicationTask.Mode.MULTIPLE,
-            this.worldPosition,
-            false
-        );
-
-        final String taskId = task.getUuid().toString();
-        network.getTaskManager().getPendingTasks().put(taskId, task);
-        if (level instanceof ServerLevel serverLevel) {
-            network.onTaskValueChanged(task, serverLevel);
-        }
-
-        final TaskSourceInfo info = getTaskSourceInfo(requestedStack, sourceId);
-        final Map<String, TaskSourceInfo> sourceTasks = activeTasks.computeIfAbsent(sourceId, id -> new HashMap<>());
-        sourceTasks.put(taskId, info);
-
-        final Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.computeIfAbsent(sourceId, id -> new HashMap<>());
-        final int currentPatternRequests = sourceRequests.getOrDefault(requestedStack, 0);
-        sourceRequests.put(requestedStack, currentPatternRequests + amount);
-        patternRequestsBySource.put(sourceId, sourceRequests);
-
-        extractMatterForTask(pattern, amount, taskId);
-    }
-
-    private @NotNull TaskSourceInfo getTaskSourceInfo(ItemStack itemStack, UUID sourceId) {
-        TaskId rs2TaskId = null;
-        if (networkNode != null) {
-            rs2TaskId = networkNode.peekActiveTaskId();
-        }
-        return new TaskSourceInfo(itemStack, sourceId, rs2TaskId);
-    }
-
-    private void extractMatterForTask(MatterPattern pattern, int count, String taskId) {
-        var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
-        if (matterCompound != null) {
-            Map<IMatterType, Long> allocated = new HashMap<>();
-            for (MatterValue matterValue : matterCompound.getValues().values()) {
-                var matterType = matterValue.getMatter();
-                var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
-                allocated.put(matterType, matterAmount);
-            }
-            allocatedMatterByTask.put(taskId, allocated);
-        }
-    }
 
     private void updateRS2Patterns(@Nullable final MatterNetwork replicationNetwork) {
         if (!isActive() || networkNode == null || replicationNetwork == null) {
@@ -588,24 +435,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return true;
     }
 
-    private void queuePatternRequest(final ReplicationPatternTemplate template) {
-        final UUID sourceId = blockId;
-        final ItemStack output = template.outputStack().copy();
-
-        final Map<ItemWithSourceId, Integer> counters = requestCounters.computeIfAbsent(sourceId, id -> new HashMap<>());
-        final ItemWithSourceId key = new ItemWithSourceId(output, sourceId);
-        counters.merge(key, output.getCount(), Integer::sum);
-
-        final Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.computeIfAbsent(sourceId, id -> new HashMap<>());
-        sourceRequests.merge(output, 1, Integer::sum);
-
-        final Map<ItemStack, Integer> globalRequests = patternRequests.computeIfAbsent(sourceId, id -> new HashMap<>());
-        globalRequests.merge(output, 1, Integer::sum);
-
-        // Fast-track processing so tasks are created on the next tick.
-        requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
-    }
-
     private List<ReplicationPatternTemplate> collectReplicationTemplates(final MatterNetwork network) {
         if (level == null || level.isClientSide()) {
             return List.of();
@@ -662,7 +491,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         if (action == Action.SIMULATE) {
             return ExternalPatternSink.Result.ACCEPTED;
         }
-        queuePatternRequest(template);
+        taskHandler.queuePatternRequest(template);
         return ExternalPatternSink.Result.ACCEPTED;
     }
 
@@ -713,6 +542,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
+    public boolean isBridgeInitialized() {
+        return initialized == 1;
+    }
+
     public void onNetworkActivityChanged(final boolean active) {
         updateConnectedState();
     }
@@ -723,8 +556,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         if (blockId != null) {
             tag.putUUID("BlockId", blockId);
         }
-        saveLocalRequestState(tag, registries);
-        saveLocalActiveTasks(tag, registries);
+        taskHandler.saveLocalRequestState(tag, registries);
+        taskHandler.saveLocalActiveTasks(tag, registries);
         saveTaskSnapshots(tag, registries);
         savePatternIdMappings(tag);
     }
@@ -737,21 +570,18 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         } else {
             blockId = UUID.randomUUID();
         }
-        if (nodeLifecycle != null) {
-            nodeLifecycle.resetAfterDataLoad();
-        }
-        loadLocalRequestState(tag, registries);
-        loadLocalActiveTasks(tag, registries);
+        nodeLifecycle.resetAfterDataLoad();
+        taskHandler.loadLocalRequestState(tag, registries);
+        taskHandler.loadLocalActiveTasks(tag, registries);
         loadTaskSnapshots(tag, registries);
         loadPatternIdMappings(tag);
-        requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
-        needsTaskRescan = true;
+        taskHandler.resetAfterDataLoad();
     }
 
     @Override
     public void setRemoved() {
         activeBridges.remove(this);
-        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+        if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("set_removed", false);
         }
         super.setRemoved();
@@ -759,14 +589,14 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     @Override
     public void onChunkUnloaded() {
-        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+        if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("chunk_unloaded", true);
         }
         super.onChunkUnloaded();
     }
 
     public void disconnectFromNetworks() {
-        if (nodeLifecycle != null && !nodeLifecycle.isRemoved()) {
+        if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("manual_disconnect", false);
         }
         initialized = 0;
@@ -788,9 +618,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     private static void cancelAllPendingOperations() {
         for (RepRS2BridgeBlockEntity bridge : new ArrayList<>(activeBridges)) {
-            bridge.requestCounters.clear();
-            bridge.patternRequests.clear();
-            bridge.patternRequestsBySource.clear();
+            bridge.taskHandler.clearPendingOperations();
         }
     }
 
@@ -835,59 +663,16 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return networkNode;
     }
 
+    public RepRS2BridgeNetworkNode getBridgeNetworkNode() {
+        return networkNode;
+    }
+
     public void handleExternalIteration() {
         this.debugTickCounter = 0;
     }
 
     public void cancelReplicationTaskForRS2Task(final TaskId rs2TaskId) {
-        if (blockId == null || level == null || level.isClientSide()) {
-            return;
-        }
-        
-        Map<String, TaskSourceInfo> sourceTasks = activeTasks.get(blockId);
-        if (sourceTasks == null || sourceTasks.isEmpty()) {
-            return;
-        }
-        
-        List<String> replicationTaskIds = new ArrayList<>();
-        for (Map.Entry<String, TaskSourceInfo> entry : sourceTasks.entrySet()) {
-            TaskSourceInfo info = entry.getValue();
-            if (info.getRs2TaskId() != null && info.getRs2TaskId().equals(rs2TaskId)) {
-                replicationTaskIds.add(entry.getKey());
-            }
-        }
-        
-        if (replicationTaskIds.isEmpty()) {
-            return;
-        }
-        
-        MatterNetwork replicationNetwork = getNetwork();
-        if (replicationNetwork != null && level instanceof ServerLevel serverLevel) {
-            for (String replicationTaskId : replicationTaskIds) {
-                replicationNetwork.cancelTask(replicationTaskId, serverLevel);
-                
-                TaskSourceInfo info = sourceTasks.remove(replicationTaskId);
-                if (info != null && info.getItemStack() != null) {
-                    Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.get(blockId);
-                    if (sourceRequests != null) {
-                        sourceRequests.remove(info.getItemStack());
-                        if (sourceRequests.isEmpty()) {
-                            patternRequestsBySource.remove(blockId);
-                        }
-                    }
-                }
-                
-                allocatedMatterByTask.remove(replicationTaskId);
-            }
-            
-            if (sourceTasks.isEmpty()) {
-                activeTasks.remove(blockId);
-            }
-            
-            matterItemsStorage.refreshCache();
-            networkNode.refreshStorageInNetwork();
-            setChanged();
-        }
+        taskHandler.cancelReplicationTaskForRs2Task(rs2TaskId);
     }
 
     private void tickNetworkNode() {
@@ -941,418 +726,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return patternIds.computeIfAbsent(signature, key -> UUID.randomUUID());
     }
     
-    private enum Rs2LifecycleState {
-        IDLE,
-        INITIALIZING,
-        READY,
-        WAITING_RETRY,
-        REMOVING,
-        REMOVED
-    }
-
-    private final class Rs2NodeLifecycle {
-        private static final long MAX_RETRY_DELAY = 200L;
-        private Rs2LifecycleState state = Rs2LifecycleState.IDLE;
-        private long retryAtTick = -1L;
-        private int attempts = 0;
-        private boolean initializationInFlight = false;
-
-        void requestInitialization(final String reason) {
-            if (!canAttemptInitialization()) {
-                return;
-            }
-            beginInitialization(reason);
-        }
-
-        void resetAfterDataLoad() {
-            initializationInFlight = false;
-            attempts = 0;
-            retryAtTick = -1L;
-            rsNodeAttached = false;
-            if (state != Rs2LifecycleState.REMOVED) {
-                state = Rs2LifecycleState.IDLE;
-            }
-        }
-
-        void tick() {
-            if (state != Rs2LifecycleState.WAITING_RETRY) {
-                return;
-            }
-            if (level == null || level.isClientSide()) {
-                return;
-            }
-            if (retryAtTick >= 0 && level.getGameTime() >= retryAtTick) {
-                beginInitialization("retry");
-            }
-        }
-
-        void shutdown(final String reason, final boolean allowRestart) {
-            initializationInFlight = false;
-            attempts = 0;
-            retryAtTick = -1L;
-            if (state == Rs2LifecycleState.REMOVED && !allowRestart) {
-                return;
-            }
-            state = Rs2LifecycleState.REMOVING;
-            final Rs2LifecycleState targetState = allowRestart ? Rs2LifecycleState.IDLE : Rs2LifecycleState.REMOVED;
-            if (level != null && !level.isClientSide() && rsNodeAttached) {
-                try {
-                    containerProvider.remove(level);
-                } catch (Exception e) {
-                    LOGGER.warn("Bridge: Failed to remove RS2 node during {}: {}", reason, e.getMessage());
-                } finally {
-                    rsNodeAttached = false;
-                }
-            }
-            state = targetState;
-        }
-
-        boolean isRemoved() {
-            return state == Rs2LifecycleState.REMOVED;
-        }
-
-        private boolean canAttemptInitialization() {
-            if (worldUnloading) {
-                return false;
-            }
-            if (level == null || level.isClientSide()) {
-                return false;
-            }
-            if (isRemoved() || state == Rs2LifecycleState.REMOVING || state == Rs2LifecycleState.REMOVED) {
-                return false;
-            }
-            if (initializationInFlight) {
-                return false;
-            }
-            if (state == Rs2LifecycleState.READY) {
-                return false;
-            }
-            if (state == Rs2LifecycleState.WAITING_RETRY && retryAtTick >= 0 && level.getGameTime() < retryAtTick) {
-                return false;
-            }
-            return true;
-        }
-
-        private void beginInitialization(final String reason) {
-            if (level == null || level.isClientSide() || isRemoved()) {
-                return;
-            }
-            initializationInFlight = true;
-            state = Rs2LifecycleState.INITIALIZING;
-            attempts++;
-            try {
-                containerProvider.initialize(level, () -> handleInitializationCallback(reason));
-            } catch (Exception e) {
-                handleInitializationFailure(reason, e);
-            }
-        }
-
-        private void handleInitializationCallback(final String reason) {
-            initializationInFlight = false;
-            if (level == null || level.isClientSide() || isRemoved() || worldUnloading
-                || state != Rs2LifecycleState.INITIALIZING) {
-                return;
-            }
-            try {
-                onRsNodeInitialized();
-                state = Rs2LifecycleState.READY;
-                retryAtTick = -1L;
-                attempts = 0;
-            } catch (Exception e) {
-                handleInitializationFailure(reason, e);
-            }
-        }
-
-        private void handleInitializationFailure(final String reason, final Exception exception) {
-            LOGGER.error("Bridge: RS2 node initialization failed ({}): {}", reason, exception.getMessage(), exception);
-            state = Rs2LifecycleState.WAITING_RETRY;
-            initializationInFlight = false;
-            rsNodeAttached = false;
-            if (level != null && !level.isClientSide()) {
-                long backoff = 20L * Math.max(1, Math.min(attempts, 6));
-                retryAtTick = level.getGameTime() + Math.min(MAX_RETRY_DELAY, backoff);
-            } else {
-                retryAtTick = -1L;
-            }
-        }
-    }
-
-    public class MatterItemsStorage implements Storage, CompositeAwareChild {
-        private ParentComposite parentComposite;
-        private final Map<ResourceKey, Long> cachedAmounts = new HashMap<>();
-
-        @Override
-        public long insert(ResourceKey resource, long amount, Action action, Actor actor) {
-            return 0;
-        }
-
-        @Override
-        public long extract(ResourceKey resource, long amount, Action action, Actor actor) {
-            if (initialized != 1) {
-                return 0;
-            }
-
-            if (actor instanceof PlayerActor) {
-                return 0;
-            }
-            
-            if (resource instanceof ItemResource itemResource) {
-                Item item = itemResource.item();
-                if (item == ModItems.UNIVERSAL_MATTER.get()) {
-                    MatterNetwork network = getNetwork();
-                    if (network != null) {
-                        ItemStack stack = itemResource.toItemStack(1);
-                        MatterComponent component =
-                                stack.get(ModDataComponents.MATTER.get());
-                        if (component != null) {
-                            IMatterType matterType = MatterTypeUtil.getMatterTypeFromComponent(component);
-                            if (matterType != null) {
-                                long available = network.calculateMatterAmount(matterType);
-                                long toExtract = Math.min(amount, available);
-                                return toExtract;
-                            }
-                        }
-                    }
-                }
-            }
-            return 0;
-        }
-
-        public long extractVirtual(Item item, long amount) {
-            if (isVirtualMatterItem(item)) {
-                return amount;
-            }
-            return 0;
-        }
-
-        @Override
-        public Collection<ResourceAmount> getAll() {
-            if (initialized != 1) {
-                return List.of();
-            }
-            
-            MatterNetwork network = getNetwork();
-            if (network != null) {
-                List<ResourceAmount> amounts = new ArrayList<>();
-                
-                List<IMatterType> matterTypes = List.of(
-                        ReplicationRegistry.Matter.METALLIC.get(),
-                        ReplicationRegistry.Matter.EARTH.get(),
-                        ReplicationRegistry.Matter.NETHER.get(),
-                        ReplicationRegistry.Matter.ORGANIC.get(),
-                        ReplicationRegistry.Matter.ENDER.get(),
-                        ReplicationRegistry.Matter.PRECIOUS.get(),
-                        ReplicationRegistry.Matter.QUANTUM.get(),
-                        ReplicationRegistry.Matter.LIVING.get()
-                );
-                
-                Map<IMatterType, Long> totalAllocated = new HashMap<>();
-                for (Map<IMatterType, Long> taskAllocation : allocatedMatterByTask.values()) {
-                    for (Map.Entry<IMatterType, Long> entry : taskAllocation.entrySet()) {
-                        totalAllocated.merge(entry.getKey(), entry.getValue(), Long::sum);
-                    }
-                }
-                
-                for (IMatterType matterType : matterTypes) {
-                    long amount = network.calculateMatterAmount(matterType);
-                    long allocated = totalAllocated.getOrDefault(matterType, 0L);
-                    long available = amount - allocated;
-                    if (available > 0) {
-                        ItemStack matterStack = UniversalMatterItem.createMatterStack(matterType, 1);
-                        if (!matterStack.isEmpty()) {
-                            ItemResource resource = ItemResource.ofItemStack(matterStack);
-                            amounts.add(new ResourceAmount(resource, available));
-                        }
-                    }
-                }
-                
-                return amounts;
-            }
-            return List.of();
-        }
-
-        @Override
-        public long getStored() {
-            return getAll().stream().mapToLong(ResourceAmount::amount).sum();
-        }
-
-        @Override
-        public void onAddedIntoComposite(ParentComposite parentComposite) {
-            this.parentComposite = parentComposite;
-            cachedAmounts.clear();
-            for (ResourceAmount amount : getAll()) {
-                cachedAmounts.put(amount.resource(), amount.amount());
-            }
-        }
-
-        @Override
-        public void onRemovedFromComposite(ParentComposite parentComposite) {
-            this.parentComposite = null;
-            cachedAmounts.clear();
-        }
-
-        @Override
-        public Amount compositeInsert(ResourceKey resource, long amount, Action action, Actor actor) {
-            return Amount.ZERO;
-        }
-
-        @Override
-        public Amount compositeExtract(ResourceKey resource, long amount, Action action, Actor actor) {
-            long extracted = extract(resource, amount, action, actor);
-            if (extracted == 0) {
-                return Amount.ZERO;
-            }
-            return new Amount(extracted, extracted);
-        }
-
-        public void refreshCache() {
-            if (parentComposite == null || level == null || level.isClientSide()) {
-                return;
-            }
-            Map<ResourceKey, Long> latest = new HashMap<>();
-            for (ResourceAmount amount : getAll()) {
-                latest.put(amount.resource(), amount.amount());
-            }
-            for (Map.Entry<ResourceKey, Long> entry : latest.entrySet()) {
-                long previous = cachedAmounts.getOrDefault(entry.getKey(), 0L);
-                long delta = entry.getValue() - previous;
-                if (delta > 0) {
-                    parentComposite.addToCache(entry.getKey(), delta);
-                } else if (delta < 0) {
-                    parentComposite.removeFromCache(entry.getKey(), -delta);
-                }
-            }
-            for (ResourceKey previousKey : new HashSet<>(cachedAmounts.keySet())) {
-                if (!latest.containsKey(previousKey)) {
-                    long previous = cachedAmounts.get(previousKey);
-                    if (previous > 0) {
-                        parentComposite.removeFromCache(previousKey, previous);
-                    }
-                }
-            }
-            cachedAmounts.clear();
-            cachedAmounts.putAll(latest);
-        }
-    }
-
-    public static class ItemWithSourceId {
-        private final ItemStack itemStack;
-        private final UUID sourceId;
-
-        public ItemWithSourceId(ItemStack itemStack, UUID sourceId) {
-            this.itemStack = itemStack.copy();
-            this.sourceId = sourceId;
-        }
-
-        public ItemStack getItemStack() {
-            return itemStack;
-        }
-
-        public UUID getSourceId() {
-            return sourceId;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            ItemWithSourceId that = (ItemWithSourceId) o;
-            return ItemStack.matches(itemStack, that.itemStack) &&
-                    Objects.equals(sourceId, that.sourceId);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(itemStack.getItem(), sourceId);
-        }
-    }
-
-    public static class TaskSourceInfo {
-        private final ItemStack itemStack;
-        private final UUID sourceId;
-        private final TaskId rs2TaskId;
-
-        public TaskSourceInfo(ItemStack itemStack, UUID sourceId) {
-            this(itemStack, sourceId, null);
-        }
-
-        public TaskSourceInfo(ItemStack itemStack, UUID sourceId, TaskId rs2TaskId) {
-            this.itemStack = itemStack.copy();
-            this.sourceId = sourceId;
-            this.rs2TaskId = rs2TaskId;
-        }
-
-        public ItemStack getItemStack() {
-            return itemStack;
-        }
-
-        public UUID getSourceId() {
-            return sourceId;
-        }
-
-        public TaskId getRs2TaskId() {
-            return rs2TaskId;
-        }
-    }
-
-    private void saveLocalRequestState(CompoundTag tag, HolderLookup.Provider registries) {
-        if (blockId == null) {
-            return;
-        }
-        Map<ItemWithSourceId, Integer> localCounters = requestCounters.get(blockId);
-        if (localCounters != null && !localCounters.isEmpty()) {
-            tag.put(TAG_LOCAL_REQUEST_COUNTERS, writeItemWithSourceList(localCounters, registries));
-        }
-        Map<ItemStack, Integer> localPatternRequests = patternRequests.get(blockId);
-        if (localPatternRequests != null && !localPatternRequests.isEmpty()) {
-            tag.put(TAG_LOCAL_PATTERN_REQUESTS, writeItemCountList(localPatternRequests, registries));
-        }
-        Map<ItemStack, Integer> localPatternRequestsBySource = patternRequestsBySource.get(blockId);
-        if (localPatternRequestsBySource != null && !localPatternRequestsBySource.isEmpty()) {
-            tag.put(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, writeItemCountList(localPatternRequestsBySource, registries));
-        }
-    }
-
-    private void loadLocalRequestState(CompoundTag tag, HolderLookup.Provider registries) {
-        if (blockId == null) {
-            return;
-        }
-        requestCounters.remove(blockId);
-        patternRequests.remove(blockId);
-        patternRequestsBySource.remove(blockId);
-        if (tag.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)) {
-            Map<ItemWithSourceId, Integer> counters =
-                readItemWithSourceList(tag.getList(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_COMPOUND), registries);
-            if (!counters.isEmpty()) {
-                requestCounters.put(blockId, counters);
-            }
-        }
-        if (tag.contains(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_LIST)) {
-            Map<ItemStack, Integer> requests =
-                readItemCountList(tag.getList(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_COMPOUND), registries);
-            if (!requests.isEmpty()) {
-                patternRequests.put(blockId, requests);
-            }
-        }
-        if (tag.contains(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_LIST)) {
-            Map<ItemStack, Integer> requests =
-                readItemCountList(tag.getList(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_COMPOUND), registries);
-            if (!requests.isEmpty()) {
-                patternRequestsBySource.put(blockId, requests);
-            }
-        }
-    }
-
-    private void saveLocalActiveTasks(CompoundTag tag, HolderLookup.Provider registries) {
-        if (blockId == null) {
-            return;
-        }
-        Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
-        if (tasks != null && !tasks.isEmpty()) {
-            tag.put(TAG_LOCAL_ACTIVE_TASKS, writeActiveTaskList(tasks, registries));
-        }
-    }
-
     private void savePatternIdMappings(final CompoundTag tag) {
         if (patternIds.isEmpty()) {
             return;
@@ -1364,20 +737,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             list.add(entry);
         });
         tag.put(TAG_PATTERN_ID_MAPPINGS, list);
-    }
-
-    private void loadLocalActiveTasks(CompoundTag tag, HolderLookup.Provider registries) {
-        if (blockId == null) {
-            return;
-        }
-        activeTasks.remove(blockId);
-        if (tag.contains(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_LIST)) {
-            Map<String, TaskSourceInfo> tasks =
-                readActiveTaskList(tag.getList(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_COMPOUND), registries);
-            if (!tasks.isEmpty()) {
-                activeTasks.put(blockId, tasks);
-            }
-        }
     }
 
     private void loadPatternIdMappings(final CompoundTag tag) {
@@ -1418,404 +777,5 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
-    private ListTag writeItemWithSourceList(Map<ItemWithSourceId, Integer> map, HolderLookup.Provider registries) {
-        ListTag list = new ListTag();
-        map.forEach((key, amount) -> {
-            CompoundTag entry = new CompoundTag();
-            entry.put("Stack", key.getItemStack().saveOptional(registries));
-            entry.putInt("Count", amount);
-            entry.putUUID("Owner", key.getSourceId());
-            list.add(entry);
-        });
-        return list;
-    }
 
-    private Map<ItemWithSourceId, Integer> readItemWithSourceList(ListTag list, HolderLookup.Provider registries) {
-        Map<ItemWithSourceId, Integer> map = new HashMap<>();
-        for (Tag element : list) {
-            CompoundTag entry = (CompoundTag) element;
-            ItemStack stack = ItemStack.parse(registries, entry.getCompound("Stack")).orElse(ItemStack.EMPTY);
-            if (stack.isEmpty()) {
-                continue;
-            }
-            UUID owner = entry.contains("Owner") ? entry.getUUID("Owner") : blockId;
-            int amount = entry.getInt("Count");
-            map.put(new ItemWithSourceId(stack, owner), amount);
-        }
-        return map;
-    }
-
-    private ListTag writeItemCountList(Map<ItemStack, Integer> map, HolderLookup.Provider registries) {
-        ListTag list = new ListTag();
-        map.forEach((stack, amount) -> {
-            CompoundTag entry = new CompoundTag();
-            entry.put("Stack", stack.saveOptional(registries));
-            entry.putInt("Count", amount);
-            list.add(entry);
-        });
-        return list;
-    }
-
-    private Map<ItemStack, Integer> readItemCountList(ListTag list, HolderLookup.Provider registries) {
-        Map<ItemStack, Integer> map = new HashMap<>();
-        for (Tag element : list) {
-            CompoundTag entry = (CompoundTag) element;
-            ItemStack stack = ItemStack.parse(registries, entry.getCompound("Stack")).orElse(ItemStack.EMPTY);
-            if (stack.isEmpty()) {
-                continue;
-            }
-            map.put(stack, entry.getInt("Count"));
-        }
-        return map;
-    }
-
-    private ListTag writeActiveTaskList(Map<String, TaskSourceInfo> tasks, HolderLookup.Provider registries) {
-        ListTag list = new ListTag();
-        tasks.forEach((taskId, info) -> {
-            CompoundTag entry = new CompoundTag();
-            entry.putString("TaskId", taskId);
-            entry.put("Stack", info.getItemStack().saveOptional(registries));
-            if (info.getRs2TaskId() != null) {
-                entry.putUUID("Rs2TaskId", info.getRs2TaskId().id());
-            }
-            list.add(entry);
-        });
-        return list;
-    }
-
-    private Map<String, TaskSourceInfo> readActiveTaskList(ListTag list, HolderLookup.Provider registries) {
-        Map<String, TaskSourceInfo> map = new HashMap<>();
-        for (Tag element : list) {
-            CompoundTag entry = (CompoundTag) element;
-            ItemStack stack = ItemStack.parse(registries, entry.getCompound("Stack")).orElse(ItemStack.EMPTY);
-            if (stack.isEmpty()) {
-                continue;
-            }
-            String taskId = entry.getString("TaskId");
-            TaskId rs2TaskId = null;
-            if (entry.contains("Rs2TaskId")) {
-                rs2TaskId = new TaskId(entry.getUUID("Rs2TaskId"));
-            }
-            map.put(taskId, new TaskSourceInfo(stack, blockId, rs2TaskId));
-        }
-        return map;
-    }
-
-    private void relinkActiveTasksFromNetwork(MatterNetwork network) {
-        if (blockId == null) {
-            return;
-        }
-        Map<String, TaskSourceInfo> tasks = activeTasks.computeIfAbsent(blockId, id -> new HashMap<>());
-        Map<String, TaskSourceInfo> previous = new HashMap<>(tasks);
-        tasks.clear();
-        network.getTaskManager().getPendingTasks().forEach((taskId, task) -> {
-            if (task != null && task.getSource() != null && task.getSource().equals(worldPosition)) {
-                TaskSourceInfo existing = previous.get(taskId);
-                if (existing != null) {
-                    tasks.put(taskId, new TaskSourceInfo(task.getReplicatingStack(), existing.getSourceId(), existing.getRs2TaskId()));
-                } else {
-                    tasks.put(taskId, new TaskSourceInfo(task.getReplicatingStack(), blockId));
-                }
-            }
-        });
-    }
-
-    private static final class TaskSnapshotNbt {
-        private static final String TAG_ID = "Id";
-        private static final String TAG_RESOURCE = "Resource";
-        private static final String TAG_AMOUNT = "Amount";
-        private static final String TAG_ACTOR = "Actor";
-        private static final String TAG_NOTIFY_ACTOR = "NotifyActor";
-        private static final String TAG_START_TIME = "StartTime";
-        private static final String TAG_INITIAL_REQUIREMENTS = "InitialRequirements";
-        private static final String TAG_INTERNAL_STORAGE = "InternalStorage";
-        private static final String TAG_CANCELLED = "Cancelled";
-        private static final String TAG_STATE = "State";
-        private static final String TAG_COMPLETED_PATTERNS = "CompletedPatterns";
-        private static final String TAG_PATTERNS = "Patterns";
-        private static final String TAG_INGREDIENTS = "Ingredients";
-        private static final String TAG_OUTPUTS = "Outputs";
-        private static final String TAG_BYPRODUCTS = "Byproducts";
-        private static final String TAG_PATTERN = "Pattern";
-        private static final String TAG_PATTERN_TYPE = "PatternType";
-        private static final String TAG_PATTERN_DATA = "PatternData";
-        private static final String TAG_INTERNAL = "Internal";
-        private static final String TAG_INTERNAL_PATTERN = "InternalPattern";
-        private static final String TAG_EXTERNAL_PATTERN = "ExternalPattern";
-        private static final String TAG_ROOT = "Root";
-        private static final String TAG_INPUTS = "Inputs";
-        private static final String TAG_ORIGINAL_ITERATIONS_REMAINING = "OriginalIterationsRemaining";
-        private static final String TAG_ITERATIONS_REMAINING = "IterationsRemaining";
-        private static final String TAG_EXPECTED_OUTPUTS = "ExpectedOutputs";
-        private static final String TAG_SIMULATED_INPUTS = "SimulatedIterationInputs";
-        private static final String TAG_ORIGINAL_ITERATIONS_TO_SEND = "OriginalIterationsToSend";
-        private static final String TAG_ITERATIONS_TO_SEND = "IterationsToSend";
-        private static final String TAG_ITERATIONS_RECEIVED = "IterationsReceived";
-        private static final String TAG_INTERCEPTED = "InterceptedSinceLastStep";
-        private static final String TAG_LAST_SINK_RESULT = "LastSinkResult";
-
-        private TaskSnapshotNbt() {
-        }
-
-        private static CompoundTag encode(TaskSnapshot snapshot) {
-            CompoundTag tag = new CompoundTag();
-            tag.putUUID(TAG_ID, snapshot.id().id());
-            tag.put(TAG_RESOURCE, encodeResourceKey(snapshot.resource()));
-            tag.putLong(TAG_AMOUNT, snapshot.amount());
-            if (snapshot.actor() instanceof PlayerActor playerActor) {
-                tag.putString(TAG_ACTOR, playerActor.name());
-            }
-            tag.putBoolean(TAG_NOTIFY_ACTOR, snapshot.notifyActor());
-            tag.putLong(TAG_START_TIME, snapshot.startTime());
-            tag.put(TAG_INITIAL_REQUIREMENTS, encodeResourceList(snapshot.initialRequirements()));
-            tag.put(TAG_INTERNAL_STORAGE, encodeResourceList(snapshot.internalStorage()));
-            tag.putBoolean(TAG_CANCELLED, snapshot.cancelled());
-            tag.putString(TAG_STATE, snapshot.state().name());
-            ListTag completed = new ListTag();
-            snapshot.completedPatterns().forEach(patternSnapshot -> completed.add(encodePatternSnapshot(patternSnapshot)));
-            tag.put(TAG_COMPLETED_PATTERNS, completed);
-            ListTag patterns = new ListTag();
-            snapshot.patterns().forEach((pattern, patternSnapshot) -> {
-                CompoundTag entry = new CompoundTag();
-                entry.put(TAG_PATTERN, encodePattern(pattern));
-                entry.put(TAG_PATTERN_DATA, encodePatternSnapshot(patternSnapshot));
-                patterns.add(entry);
-            });
-            tag.put(TAG_PATTERNS, patterns);
-            return tag;
-        }
-
-        private static TaskSnapshot decode(CompoundTag tag) {
-            TaskId id = new TaskId(tag.getUUID(TAG_ID));
-            ResourceKey resource = ResourceCodecs.CODEC.parse(NbtOps.INSTANCE, tag.getCompound(TAG_RESOURCE)).result().orElseThrow();
-            long amount = tag.getLong(TAG_AMOUNT);
-            Actor actor = tag.contains(TAG_ACTOR, Tag.TAG_STRING) ? new PlayerActor(tag.getString(TAG_ACTOR)) : Actor.EMPTY;
-            boolean notifyActor = tag.getBoolean(TAG_NOTIFY_ACTOR);
-            long startTime = tag.getLong(TAG_START_TIME);
-            ResourceList initialRequirements = decodeResourceList(tag.getList(TAG_INITIAL_REQUIREMENTS, Tag.TAG_COMPOUND));
-            ResourceList internalStorage = decodeResourceList(tag.getList(TAG_INTERNAL_STORAGE, Tag.TAG_COMPOUND));
-            boolean cancelled = tag.getBoolean(TAG_CANCELLED);
-            TaskState state = TaskState.valueOf(tag.getString(TAG_STATE));
-            List<TaskSnapshot.PatternSnapshot> completed = new ArrayList<>();
-            for (Tag completedTag : tag.getList(TAG_COMPLETED_PATTERNS, Tag.TAG_COMPOUND)) {
-                completed.add(decodePatternSnapshot((CompoundTag) completedTag));
-            }
-            Map<Pattern, TaskSnapshot.PatternSnapshot> patterns = new HashMap<>();
-            for (Tag patternTag : tag.getList(TAG_PATTERNS, Tag.TAG_COMPOUND)) {
-                CompoundTag entry = (CompoundTag) patternTag;
-                Pattern pattern = decodePattern(entry.getCompound(TAG_PATTERN));
-                TaskSnapshot.PatternSnapshot snapshot = decodePatternSnapshot(entry.getCompound(TAG_PATTERN_DATA));
-                patterns.put(pattern, snapshot);
-            }
-            return new TaskSnapshot(
-                id,
-                resource,
-                amount,
-                actor,
-                notifyActor,
-                startTime,
-                patterns,
-                completed,
-                initialRequirements,
-                internalStorage,
-                state,
-                cancelled
-            );
-        }
-
-        private static ListTag encodeResourceList(ResourceList list) {
-            ListTag listTag = new ListTag();
-            list.getAll().forEach(resource -> {
-                CompoundTag entry = encodeResourceKey(resource);
-                entry.putLong(TAG_AMOUNT, list.get(resource));
-                listTag.add(entry);
-            });
-            return listTag;
-        }
-
-        private static ResourceList decodeResourceList(ListTag listTag) {
-            MutableResourceList resourceList = MutableResourceListImpl.create();
-            for (Tag element : listTag) {
-                CompoundTag entry = (CompoundTag) element;
-                ResourceKey resource = ResourceCodecs.CODEC.parse(NbtOps.INSTANCE, entry).result().orElseThrow();
-                long amount = entry.getLong(TAG_AMOUNT);
-                resourceList.add(resource, amount);
-            }
-            return resourceList;
-        }
-
-        private static CompoundTag encodeResourceKey(ResourceKey resource) {
-            if (resource instanceof PlatformResourceKey platformResourceKey) {
-                Tag encoded = ResourceCodecs.CODEC.encodeStart(NbtOps.INSTANCE, platformResourceKey)
-                    .result()
-                    .orElse(new CompoundTag());
-                if (encoded instanceof CompoundTag compoundTag) {
-                    return compoundTag;
-                }
-                throw new IllegalStateException("Expected CompoundTag while encoding resource key, got: "
-                    + encoded.getClass().getSimpleName());
-            }
-            throw new IllegalStateException("Cannot encode non-platform resource key: " + resource);
-        }
-
-        private static CompoundTag encodePatternSnapshot(TaskSnapshot.PatternSnapshot snapshot) {
-            CompoundTag tag = new CompoundTag();
-            tag.putBoolean(TAG_ROOT, snapshot.root());
-            tag.put(TAG_PATTERN, encodePattern(snapshot.pattern()));
-            ListTag ingredients = new ListTag();
-            snapshot.ingredients().forEach((slot, inner) -> {
-                CompoundTag ingredientTag = new CompoundTag();
-                ingredientTag.putInt("Slot", slot);
-                ListTag innerList = new ListTag();
-                inner.forEach((resource, amount) -> {
-                    CompoundTag entry = encodeResourceKey(resource);
-                    entry.putLong(TAG_AMOUNT, amount);
-                    innerList.add(entry);
-                });
-                ingredientTag.put(TAG_INPUTS, innerList);
-                ingredients.add(ingredientTag);
-            });
-            tag.put(TAG_INGREDIENTS, ingredients);
-            tag.putBoolean(TAG_INTERNAL, snapshot.internalPattern() != null);
-            if (snapshot.internalPattern() != null) {
-                tag.put(TAG_INTERNAL_PATTERN, encodeInternalPattern(snapshot.internalPattern()));
-            } else if (snapshot.externalPattern() != null) {
-                tag.put(TAG_EXTERNAL_PATTERN, encodeExternalPattern(snapshot.externalPattern()));
-            }
-            return tag;
-        }
-
-        private static TaskSnapshot.PatternSnapshot decodePatternSnapshot(CompoundTag tag) {
-            boolean root = tag.getBoolean(TAG_ROOT);
-            Pattern pattern = decodePattern(tag.getCompound(TAG_PATTERN));
-            Map<Integer, Map<ResourceKey, Long>> ingredients = new HashMap<>();
-            for (Tag ingredientTag : tag.getList(TAG_INGREDIENTS, Tag.TAG_COMPOUND)) {
-                CompoundTag ingredient = (CompoundTag) ingredientTag;
-                int slot = ingredient.getInt("Slot");
-                Map<ResourceKey, Long> inner = new HashMap<>();
-                for (Tag innerTag : ingredient.getList(TAG_INPUTS, Tag.TAG_COMPOUND)) {
-                    CompoundTag entry = (CompoundTag) innerTag;
-                    ResourceKey resource = ResourceCodecs.CODEC.parse(NbtOps.INSTANCE, entry).result().orElseThrow();
-                    inner.put(resource, entry.getLong(TAG_AMOUNT));
-                }
-                ingredients.put(slot, inner);
-            }
-            if (tag.getBoolean(TAG_INTERNAL)) {
-                TaskSnapshot.InternalPatternSnapshot internal = decodeInternalPattern(tag.getCompound(TAG_INTERNAL_PATTERN));
-                return new TaskSnapshot.PatternSnapshot(root, pattern, ingredients, internal, null);
-            }
-            TaskSnapshot.ExternalPatternSnapshot external = decodeExternalPattern(tag.getCompound(TAG_EXTERNAL_PATTERN));
-            return new TaskSnapshot.PatternSnapshot(root, pattern, ingredients, null, external);
-        }
-
-        private static CompoundTag encodePattern(Pattern pattern) {
-            CompoundTag tag = new CompoundTag();
-            tag.putUUID(TAG_ID, pattern.id());
-            ListTag ingredients = new ListTag();
-            for (Ingredient ingredient : pattern.layout().ingredients()) {
-                ingredients.add(encodeIngredient(ingredient));
-            }
-            tag.put(TAG_INGREDIENTS, ingredients);
-            ListTag outputs = new ListTag();
-            for (ResourceAmount output : pattern.layout().outputs()) {
-                outputs.add(ResourceCodecs.AMOUNT_CODEC.encodeStart(NbtOps.INSTANCE, output).result().orElse(new CompoundTag()));
-            }
-            tag.put(TAG_OUTPUTS, outputs);
-            ListTag byproducts = new ListTag();
-            for (ResourceAmount byproduct : pattern.layout().byproducts()) {
-                byproducts.add(ResourceCodecs.AMOUNT_CODEC.encodeStart(NbtOps.INSTANCE, byproduct).result().orElse(new CompoundTag()));
-            }
-            tag.put(TAG_BYPRODUCTS, byproducts);
-            tag.putString(TAG_PATTERN_TYPE, pattern.layout().type().name());
-            return tag;
-        }
-
-        private static Pattern decodePattern(CompoundTag tag) {
-            UUID id = tag.getUUID(TAG_ID);
-            List<Ingredient> ingredients = new ArrayList<>();
-            for (Tag ingredientTag : tag.getList(TAG_INGREDIENTS, Tag.TAG_COMPOUND)) {
-                ingredients.add(decodeIngredient((CompoundTag) ingredientTag));
-            }
-            List<ResourceAmount> outputs = new ArrayList<>();
-            for (Tag outputTag : tag.getList(TAG_OUTPUTS, Tag.TAG_COMPOUND)) {
-                outputs.add(ResourceCodecs.AMOUNT_CODEC.parse(NbtOps.INSTANCE, outputTag).result().orElseThrow());
-            }
-            List<ResourceAmount> byproducts = new ArrayList<>();
-            for (Tag byproductTag : tag.getList(TAG_BYPRODUCTS, Tag.TAG_COMPOUND)) {
-                byproducts.add(ResourceCodecs.AMOUNT_CODEC.parse(NbtOps.INSTANCE, byproductTag).result().orElseThrow());
-            }
-            PatternType type = PatternType.valueOf(tag.getString(TAG_PATTERN_TYPE));
-            PatternLayout layout = type == PatternType.INTERNAL
-                ? PatternLayout.internal(ingredients, outputs, byproducts)
-                : PatternLayout.external(ingredients, outputs);
-            return new Pattern(id, layout);
-        }
-
-        private static CompoundTag encodeIngredient(Ingredient ingredient) {
-            CompoundTag tag = new CompoundTag();
-            tag.putLong(TAG_AMOUNT, ingredient.amount());
-            ListTag inputs = new ListTag();
-            ingredient.inputs().forEach(input -> inputs.add(encodeResourceKey(input)));
-            tag.put(TAG_INPUTS, inputs);
-            return tag;
-        }
-
-        private static Ingredient decodeIngredient(CompoundTag tag) {
-            long amount = tag.getLong(TAG_AMOUNT);
-            List<ResourceKey> inputs = new ArrayList<>();
-            for (Tag inputTag : tag.getList(TAG_INPUTS, Tag.TAG_COMPOUND)) {
-                inputs.add(ResourceCodecs.CODEC.parse(NbtOps.INSTANCE, inputTag).result().orElseThrow());
-            }
-            return new Ingredient(amount, inputs);
-        }
-
-        private static CompoundTag encodeInternalPattern(TaskSnapshot.InternalPatternSnapshot snapshot) {
-            CompoundTag tag = new CompoundTag();
-            tag.putLong(TAG_ORIGINAL_ITERATIONS_REMAINING, snapshot.originalIterationsRemaining());
-            tag.putLong(TAG_ITERATIONS_REMAINING, snapshot.iterationsRemaining());
-            return tag;
-        }
-
-        private static TaskSnapshot.InternalPatternSnapshot decodeInternalPattern(CompoundTag tag) {
-            long original = tag.getLong(TAG_ORIGINAL_ITERATIONS_REMAINING);
-            long remaining = tag.getLong(TAG_ITERATIONS_REMAINING);
-            return new TaskSnapshot.InternalPatternSnapshot(original, remaining);
-        }
-
-        private static CompoundTag encodeExternalPattern(TaskSnapshot.ExternalPatternSnapshot snapshot) {
-            CompoundTag tag = new CompoundTag();
-            tag.put(TAG_EXPECTED_OUTPUTS, encodeResourceList(snapshot.expectedOutputs()));
-            tag.put(TAG_SIMULATED_INPUTS, encodeResourceList(snapshot.simulatedIterationInputs()));
-            tag.putLong(TAG_ORIGINAL_ITERATIONS_TO_SEND, snapshot.originalIterationsToSendToSink());
-            tag.putLong(TAG_ITERATIONS_TO_SEND, snapshot.iterationsToSendToSink());
-            tag.putLong(TAG_ITERATIONS_RECEIVED, snapshot.iterationsReceived());
-            tag.putBoolean(TAG_INTERCEPTED, snapshot.interceptedAnythingSinceLastStep());
-            if (snapshot.lastSinkResult() != null) {
-                tag.putString(TAG_LAST_SINK_RESULT, snapshot.lastSinkResult().name());
-            }
-            return tag;
-        }
-
-        private static TaskSnapshot.ExternalPatternSnapshot decodeExternalPattern(CompoundTag tag) {
-            ResourceList expectedOutputs = decodeResourceList(tag.getList(TAG_EXPECTED_OUTPUTS, Tag.TAG_COMPOUND));
-            ResourceList simulatedInputs = decodeResourceList(tag.getList(TAG_SIMULATED_INPUTS, Tag.TAG_COMPOUND));
-            long originalIterationsToSend = tag.getLong(TAG_ORIGINAL_ITERATIONS_TO_SEND);
-            long iterationsToSend = tag.getLong(TAG_ITERATIONS_TO_SEND);
-            long iterationsReceived = tag.getLong(TAG_ITERATIONS_RECEIVED);
-            boolean intercepted = tag.getBoolean(TAG_INTERCEPTED);
-            ExternalPatternSink.Result sinkResult = tag.contains(TAG_LAST_SINK_RESULT)
-                ? ExternalPatternSink.Result.valueOf(tag.getString(TAG_LAST_SINK_RESULT))
-                : null;
-            return new TaskSnapshot.ExternalPatternSnapshot(
-                expectedOutputs,
-                simulatedInputs,
-                originalIterationsToSend,
-                iterationsToSend,
-                iterationsReceived,
-                intercepted,
-                sinkResult,
-                null
-            );
-        }
-    }
 }

@@ -1,6 +1,6 @@
 package com.leclowndu93150.replication_rs2_bridge.mixin;
 
-import com.leclowndu93150.replication_rs2_bridge.record.MatterTypeInfo;
+import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeInfo;
 import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.renderer.texture.SpriteContents;

@@ -1,9 +1,9 @@
-package com.leclowndu93150.replication_rs2_bridge.record;
+package com.leclowndu93150.replication_rs2_bridge.block.entity.pattern;
+
+import java.util.Map;
 
 import com.buuz135.replication.api.IMatterType;
 import com.buuz135.replication.api.pattern.MatterPattern;
-
-import java.util.Map;
 
 import net.minecraft.world.item.ItemStack;
 
@@ -17,4 +17,3 @@ public record ReplicationPatternTemplate(
     Map<IMatterType, Long> matterCost
 ) {
 }
-
