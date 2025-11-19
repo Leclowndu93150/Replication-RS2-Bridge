@@ -109,7 +109,7 @@ dependencies {
     implementation("com.refinedmods.refinedstorage:refinedstorage-neoforge:2.0.0-beta.17") {
         transitive = false
     }
-    implementation "curse.maven:replication-638351:7199349"
+    implementation "curse.maven:replication-638351:7239233"
     implementation "curse.maven:titanium-287342:6875285"
     implementation "curse.maven:jei-238222:7181665"
     implementation "curse.maven:jade-324717:6853386"

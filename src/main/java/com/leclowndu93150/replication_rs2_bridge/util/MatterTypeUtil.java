@@ -6,6 +6,7 @@ import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 
 import java.util.HashMap;
@@ -15,8 +16,17 @@ public class MatterTypeUtil {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<String, MatterTypeInfo> MATTER_CACHE = new HashMap<>();
     private static final Map<IMatterType, MatterTypeInfo> MATTER_BY_TYPE = new HashMap<>();
+    private static MinecraftServer cachedServer = null;
+
+    public static void setServer(MinecraftServer server) {
+        cachedServer = server;
+    }
 
     public static void loadAllMatters() {
+        loadAllMatters(cachedServer);
+    }
+
+    public static void loadAllMatters(MinecraftServer server) {
         MATTER_CACHE.clear();
         MATTER_BY_TYPE.clear();
 
@@ -27,6 +37,8 @@ public class MatterTypeUtil {
                 return;
             }
             
+            MatterComponentRegistry componentRegistry = server != null ? MatterComponentRegistry.get(server) : null;
+            
             for (var entry : registry.entrySet()) {
                 ResourceLocation id = entry.getKey().location();
                 IMatterType matterType = entry.getValue();
@@ -35,7 +47,14 @@ public class MatterTypeUtil {
                 float[] color = matterType.getColor().get();
                 ResourceLocation texture = resolveTexture(id, name);
                 
-                MatterTypeInfo info = new MatterTypeInfo(name, texture, color, id, matterType);
+                MatterComponent canonicalComponent;
+                if (componentRegistry != null) {
+                    canonicalComponent = componentRegistry.getOrCreate(name, texture, color);
+                } else {
+                    canonicalComponent = new MatterComponent(name, texture, color);
+                }
+                
+                MatterTypeInfo info = new MatterTypeInfo(name, texture, color, id, matterType, canonicalComponent);
                 MATTER_CACHE.put(name, info);
                 MATTER_BY_TYPE.put(matterType, info);
                 

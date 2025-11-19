@@ -62,7 +62,8 @@ public class ReplicationRSBridge {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         RepRS2BridgeBlockEntity.setWorldUnloading(false);
-        MatterTypeUtil.loadAllMatters();
+        MatterTypeUtil.setServer(event.getServer());
+        MatterTypeUtil.loadAllMatters(event.getServer());
     }
 
     @SubscribeEvent

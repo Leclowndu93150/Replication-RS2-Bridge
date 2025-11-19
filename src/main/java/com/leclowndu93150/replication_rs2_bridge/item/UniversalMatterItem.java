@@ -55,21 +55,20 @@ public class UniversalMatterItem extends Item {
     public static ItemStack createMatterStack(IMatterType matterType, int count) {
         var info = MatterTypeUtil.getMatterInfo(matterType);
         
-        String name = matterType.getName();
-        float[] color = matterType.getColor().get();
-        ResourceLocation texture;
-        
-        if (info != null) {
-            texture = info.texture();
+        MatterComponent component;
+        if (info != null && info.canonicalComponent() != null) {
+            component = info.canonicalComponent();
         } else {
-            texture = ResourceLocation.fromNamespaceAndPath(
+            String name = matterType.getName();
+            float[] color = matterType.getColor().get();
+            ResourceLocation texture = ResourceLocation.fromNamespaceAndPath(
                     "replication",
                     "gui/mattertypes/" + name.toLowerCase()
             );
+            component = new MatterComponent(name, texture, color);
         }
         
         ItemStack stack = new ItemStack(ModItems.UNIVERSAL_MATTER.get(), count);
-        MatterComponent component = new MatterComponent(name, texture, color);
         stack.set(ModDataComponents.MATTER.get(), component);
         return stack;
     }
