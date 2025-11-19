@@ -1,8 +1,5 @@
 package com.leclowndu93150.replication_rs2_bridge.util;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.buuz135.replication.api.IMatterType;
 import com.leclowndu93150.replication_rs2_bridge.component.MatterComponent;
 
@@ -23,28 +20,11 @@ public record MatterTypeInfo(String name,
         MatterTypeInfo::name,
         ResourceLocation.STREAM_CODEC,
         MatterTypeInfo::texture,
-        ByteBufCodecs.FLOAT.apply(ByteBufCodecs.list()).map(
-            list -> {
-                float[] arr = new float[list.size()];
-                for (int i = 0; i < list.size(); i++) {
-                    arr[i] = list.get(i);
-                }
-                return arr;
-            },
-            arr -> {
-                List<Float> list = new ArrayList<>();
-                for (float v : arr) {
-                    list.add(v);
-                }
-                return list;
-            }
-        ),
-        MatterTypeInfo::color,
         ResourceLocation.STREAM_CODEC,
         MatterTypeInfo::registryId,
-        (name, texture, color, registryId) -> {
-            MatterComponent component = new MatterComponent(name, texture, color);
-            return new MatterTypeInfo(name, texture, color, registryId, null, component);
+        (name, texture, registryId) -> {
+            MatterComponent component = new MatterComponent(name, texture);
+            return new MatterTypeInfo(name, texture, null, registryId, null, component);
         }
     );
 }

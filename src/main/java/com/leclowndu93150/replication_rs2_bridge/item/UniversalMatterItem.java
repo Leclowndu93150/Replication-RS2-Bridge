@@ -60,12 +60,11 @@ public class UniversalMatterItem extends Item {
             component = info.canonicalComponent();
         } else {
             String name = matterType.getName();
-            float[] color = matterType.getColor().get();
             ResourceLocation texture = ResourceLocation.fromNamespaceAndPath(
                     "replication",
                     "gui/mattertypes/" + name.toLowerCase()
             );
-            component = new MatterComponent(name, texture, color);
+            component = new MatterComponent(name, texture);
         }
         
         ItemStack stack = new ItemStack(ModItems.UNIVERSAL_MATTER.get(), count);

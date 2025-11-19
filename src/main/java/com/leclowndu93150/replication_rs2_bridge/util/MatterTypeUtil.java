@@ -44,17 +44,16 @@ public class MatterTypeUtil {
                 IMatterType matterType = entry.getValue();
                 
                 String name = matterType.getName();
-                float[] color = matterType.getColor().get();
                 ResourceLocation texture = resolveTexture(id, name);
                 
                 MatterComponent canonicalComponent;
                 if (componentRegistry != null) {
-                    canonicalComponent = componentRegistry.getOrCreate(name, texture, color);
+                    canonicalComponent = componentRegistry.getOrCreate(name, texture);
                 } else {
-                    canonicalComponent = new MatterComponent(name, texture, color);
+                    canonicalComponent = new MatterComponent(name, texture);
                 }
                 
-                MatterTypeInfo info = new MatterTypeInfo(name, texture, color, id, matterType, canonicalComponent);
+                MatterTypeInfo info = new MatterTypeInfo(name, texture, null, id, matterType, canonicalComponent);
                 MATTER_CACHE.put(name, info);
                 MATTER_BY_TYPE.put(matterType, info);
                 

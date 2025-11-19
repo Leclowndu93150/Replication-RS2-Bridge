@@ -34,11 +34,23 @@ import com.refinedmods.refinedstorage.api.network.node.NetworkNode;
 import com.refinedmods.refinedstorage.api.network.storage.StorageNetworkComponent;
 import com.refinedmods.refinedstorage.api.resource.ResourceAmount;
 import com.refinedmods.refinedstorage.api.storage.Actor;
+import com.leclowndu93150.replication_rs2_bridge.menu.RepRS2BridgeData;
+import com.leclowndu93150.replication_rs2_bridge.menu.RepRS2BridgeMenu;
 import com.refinedmods.refinedstorage.common.api.RefinedStorageApi;
+import com.refinedmods.refinedstorage.common.api.configurationcard.ConfigurationCardTarget;
 import com.refinedmods.refinedstorage.common.api.support.network.InWorldNetworkNodeContainer;
 import com.refinedmods.refinedstorage.common.api.support.network.NetworkNodeContainerProvider;
+import com.refinedmods.refinedstorage.common.support.containermenu.ExtendedMenuProvider;
 import com.refinedmods.refinedstorage.common.support.network.ColoredConnectionStrategy;
 import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.StreamEncoder;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -64,7 +76,8 @@ import java.util.stream.Collectors;
  * BlockEntity for the RepRS2Bridge that connects the RS2 network with the Replication matter network
  * Equivalent to RepAE2BridgeBlockEntity but for Refined Storage 2
  */
-public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBlockEntity> {
+public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBlockEntity> 
+    implements ConfigurationCardTarget, ExtendedMenuProvider<RepRS2BridgeData> {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     
@@ -73,6 +86,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final String TAG_RS_TASK_SNAPSHOTS = "RsTaskSnapshots";
     private static final String TAG_PATTERN_ID_MAPPINGS = "PatternIdMappings";
     private static final String TAG_PATTERN_ID = "PatternId";
+    private static final String TAG_PRIORITY = "Priority";
     
     private byte initialized = 0;
     private int initializationTicks = 0;
@@ -84,6 +98,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     
     @Save
     private UUID blockId;
+    
+    @Save
+    private int priority = 0;
     
     private final RepRS2BridgeNetworkNode networkNode;
     private final InWorldNetworkNodeContainer nodeContainer;
@@ -211,6 +228,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         updateConnectedState();
         forceNeighborUpdates();
         matterItemsStorage.refreshCache();
+        networkNode.setPriority(priority);
         patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
         try {
             updateRS2Patterns(getNetwork());
@@ -556,6 +574,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         if (blockId != null) {
             tag.putUUID("BlockId", blockId);
         }
+        tag.putInt(TAG_PRIORITY, priority);
         taskHandler.saveLocalRequestState(tag, registries);
         taskHandler.saveLocalActiveTasks(tag, registries);
         saveTaskSnapshots(tag, registries);
@@ -569,6 +588,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             blockId = tag.getUUID("BlockId");
         } else {
             blockId = UUID.randomUUID();
+        }
+        if (tag.contains(TAG_PRIORITY)) {
+            priority = tag.getInt(TAG_PRIORITY);
         }
         nodeLifecycle.resetAfterDataLoad();
         taskHandler.loadLocalRequestState(tag, registries);
@@ -652,7 +674,30 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     @Override
     public ItemInteractionResult onActivated(Player player, InteractionHand hand, Direction facing, double hitX, double hitY, double hitZ) {
+        if (level != null && !level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
+            serverPlayer.openMenu(this, worldPosition);
+        }
         return ItemInteractionResult.SUCCESS;
+    }
+    
+    @Override
+    public Component getDisplayName() {
+        return Component.translatable("block.replication_rs2_bridge.rep_rs2_bridge");
+    }
+    
+    @Override
+    public AbstractContainerMenu createMenu(int syncId, Inventory playerInventory, Player player) {
+        return new RepRS2BridgeMenu(syncId, playerInventory, this);
+    }
+    
+    @Override
+    public RepRS2BridgeData getMenuData() {
+        return new RepRS2BridgeData();
+    }
+    
+    @Override
+    public StreamEncoder<RegistryFriendlyByteBuf, RepRS2BridgeData> getMenuCodec() {
+        return RepRS2BridgeData.STREAM_CODEC;
     }
 
     public UUID getBlockId() {
@@ -776,6 +821,31 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             networkNode.restoreTasks(snapshots);
         }
     }
-
+    
+    public int getPriority() {
+        return priority;
+    }
+    
+    public void setPriority(int priority) {
+        if (this.priority != priority) {
+            this.priority = priority;
+            if (networkNode != null) {
+                networkNode.setPriority(priority);
+            }
+            setChanged();
+        }
+    }
+    
+    @Override
+    public void writeConfiguration(CompoundTag tag, HolderLookup.Provider provider) {
+        tag.putInt(TAG_PRIORITY, priority);
+    }
+    
+    @Override
+    public void readConfiguration(CompoundTag tag, HolderLookup.Provider provider) {
+        if (tag.contains(TAG_PRIORITY)) {
+            setPriority(tag.getInt(TAG_PRIORITY));
+        }
+    }
 
 }

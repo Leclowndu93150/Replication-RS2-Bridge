@@ -33,13 +33,7 @@ public class MatterComponentRegistry extends SavedData {
             String matterTypeName = componentTag.getString("matterTypeName");
             ResourceLocation texture = ResourceLocation.parse(componentTag.getString("texture"));
             
-            int[] colorInt = componentTag.getIntArray("color");
-            float[] color = new float[colorInt.length];
-            for (int j = 0; j < colorInt.length; j++) {
-                color[j] = Float.intBitsToFloat(colorInt[j]);
-            }
-            
-            MatterComponent component = new MatterComponent(matterTypeName, texture, color);
+            MatterComponent component = new MatterComponent(matterTypeName, texture);
             registry.canonicalComponents.put(matterTypeName, component);
         }
         
@@ -58,13 +52,6 @@ public class MatterComponentRegistry extends SavedData {
             componentTag.putString("matterTypeName", component.matterTypeName());
             componentTag.putString("texture", component.texture().toString());
             
-            float[] color = component.color();
-            int[] colorInt = new int[color.length];
-            for (int i = 0; i < color.length; i++) {
-                colorInt[i] = Float.floatToIntBits(color[i]);
-            }
-            componentTag.putIntArray("color", colorInt);
-            
             list.add(componentTag);
         }
         
@@ -72,11 +59,11 @@ public class MatterComponentRegistry extends SavedData {
         return tag;
     }
     
-    public MatterComponent getOrCreate(String matterTypeName, ResourceLocation texture, float[] color) {
+    public MatterComponent getOrCreate(String matterTypeName, ResourceLocation texture) {
         return canonicalComponents.computeIfAbsent(matterTypeName, k -> {
             LOGGER.info("RepRS2Bridge: Registering new canonical matter component: {}", matterTypeName);
             setDirty();
-            return new MatterComponent(matterTypeName, texture, color);
+            return new MatterComponent(matterTypeName, texture);
         });
     }
     

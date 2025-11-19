@@ -84,8 +84,9 @@ public abstract class SpriteLoaderMixin {
         }
 
         SpriteContents contents = loader.loadSprite(spriteId, resource);
-        if (contents != null) {
-            rep_rs2_bridge$applyTint(contents.getOriginalImage(), info.color());
+        if (contents != null && info.matterType() != null) {
+            float[] color = info.matterType().getColor().get();
+            rep_rs2_bridge$applyTint(contents.getOriginalImage(), color);
         }
         return contents;
     }

@@ -8,6 +8,7 @@ import com.leclowndu93150.replication_rs2_bridge.block.entity.ModBlockEntities;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
 import com.leclowndu93150.replication_rs2_bridge.component.ModDataComponents;
 import com.leclowndu93150.replication_rs2_bridge.item.ModCreativeTabs;
+import com.leclowndu93150.replication_rs2_bridge.menu.ModMenus;
 import com.leclowndu93150.replication_rs2_bridge.util.MatterTypeUtil;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
@@ -44,6 +45,7 @@ public class ReplicationRSBridge {
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModCreativeTabs.register(modEventBus);
+        ModMenus.register(modEventBus);
 
         modEventBus.addListener(this::registerCapabilities);
     }
