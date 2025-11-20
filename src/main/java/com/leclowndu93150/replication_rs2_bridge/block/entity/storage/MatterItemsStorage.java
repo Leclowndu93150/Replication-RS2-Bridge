@@ -92,15 +92,8 @@ public final class MatterItemsStorage implements Storage, CompositeAwareChild {
         }
 
         final List<ResourceAmount> amounts = new ArrayList<>();
-        final List<IMatterType> matterTypes = List.of(
-            ReplicationRegistry.Matter.METALLIC.get(),
-            ReplicationRegistry.Matter.EARTH.get(),
-            ReplicationRegistry.Matter.NETHER.get(),
-            ReplicationRegistry.Matter.ORGANIC.get(),
-            ReplicationRegistry.Matter.ENDER.get(),
-            ReplicationRegistry.Matter.PRECIOUS.get(),
-            ReplicationRegistry.Matter.QUANTUM.get(),
-            ReplicationRegistry.Matter.LIVING.get()
+        final List<IMatterType> matterTypes = new ArrayList<>(
+            ReplicationRegistry.MATTER_TYPES_REGISTRY.stream().toList()
         );
         final Map<IMatterType, Long> totalAllocated = taskHandler.summarizeAllocatedMatter();
 
