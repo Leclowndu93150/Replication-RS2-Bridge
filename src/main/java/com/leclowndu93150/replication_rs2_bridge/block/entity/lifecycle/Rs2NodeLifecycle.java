@@ -2,6 +2,9 @@ package com.leclowndu93150.replication_rs2_bridge.block.entity.lifecycle;
 
 import org.slf4j.Logger;
 
+import com.buuz135.replication.network.MatterNetwork;
+import com.hrznstudio.titanium.block_network.NetworkManager;
+import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
 import com.refinedmods.refinedstorage.common.api.support.network.NetworkNodeContainerProvider;
 
@@ -76,6 +79,8 @@ public final class Rs2NodeLifecycle {
         if (RepRS2BridgeBlockEntity.isWorldUnloading()) {
             return;
         }
+
+        // Check RS2 network connection
         final var networkNode = owner.getBridgeNetworkNode();
         if (networkNode == null) {
             logger.warn("Bridge: Network node is null, triggering reconnection");
@@ -86,6 +91,48 @@ public final class Rs2NodeLifecycle {
         if (network == null) {
             logger.warn("Bridge: Disconnected from RS2 network, triggering reconnection");
             triggerReconnect("null_network");
+            return;
+        }
+
+        // Check Replication (Matter) network connection
+        checkReplicationNetworkConnection();
+    }
+
+    private void checkReplicationNetworkConnection() {
+        final Level level = owner.getLevel();
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+
+        try {
+            final NetworkManager networkManager = NetworkManager.get(level);
+            if (networkManager == null) {
+                logger.warn("Bridge: Replication NetworkManager is null, cannot check connection");
+                return;
+            }
+
+            NetworkElement element = networkManager.getElement(owner.getBlockPos());
+            if (element == null) {
+                logger.warn("Bridge: Disconnected from Replication network, recreating element");
+                element = owner.createReplicationNetworkElement();
+                if (element != null) {
+                    networkManager.addElement(element);
+                    logger.info("Bridge: Replication network element recreated successfully");
+                }
+                return;
+            }
+
+            if (!(element.getNetwork() instanceof MatterNetwork)) {
+                logger.warn("Bridge: Replication network element exists but not connected to MatterNetwork, re-adding");
+                networkManager.removeElement(element);
+                final NetworkElement newElement = owner.createReplicationNetworkElement();
+                if (newElement != null) {
+                    networkManager.addElement(newElement);
+                    logger.info("Bridge: Replication network element re-added successfully");
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Bridge: Exception during Replication network check: {}", e.getMessage());
         }
     }
 

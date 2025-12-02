@@ -180,6 +180,13 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
     }
 
+    public NetworkElement createReplicationNetworkElement() {
+        if (level == null) {
+            return null;
+        }
+        return createElement(level, worldPosition);
+    }
+
     @Override
     public void onLoad() {
         try {
