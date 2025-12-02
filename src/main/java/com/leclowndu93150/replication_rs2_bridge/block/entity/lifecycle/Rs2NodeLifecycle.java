@@ -12,6 +12,7 @@ import net.minecraft.world.level.Level;
  */
 public final class Rs2NodeLifecycle {
     private static final long MAX_RETRY_DELAY = 200L;
+    private static final int CONNECTION_CHECK_INTERVAL = 20; // Check every second (20 ticks)
 
     private final RepRS2BridgeBlockEntity owner;
     private final NetworkNodeContainerProvider containerProvider;
@@ -21,6 +22,7 @@ public final class Rs2NodeLifecycle {
     private int attempts;
     private boolean initializationInFlight;
     private boolean rsNodeAttached;
+    private int connectionCheckTicks = 0;
 
     public Rs2NodeLifecycle(final RepRS2BridgeBlockEntity owner,
                             final NetworkNodeContainerProvider containerProvider,
@@ -47,16 +49,50 @@ public final class Rs2NodeLifecycle {
     }
 
     public void tick() {
-        if (state != Rs2LifecycleState.WAITING_RETRY) {
-            return;
-        }
         final Level level = owner.getLevel();
         if (level == null || level.isClientSide()) {
             return;
         }
-        if (retryAtTick >= 0 && level.getGameTime() >= retryAtTick) {
-            beginInitialization("retry");
+
+        // Handle retry logic for WAITING_RETRY state
+        if (state == Rs2LifecycleState.WAITING_RETRY) {
+            if (retryAtTick >= 0 && level.getGameTime() >= retryAtTick) {
+                beginInitialization("retry");
+            }
+            return;
         }
+
+        // Periodic connection check every second when in READY state
+        if (state == Rs2LifecycleState.READY) {
+            connectionCheckTicks++;
+            if (connectionCheckTicks >= CONNECTION_CHECK_INTERVAL) {
+                connectionCheckTicks = 0;
+                checkConnectionAndReconnect();
+            }
+        }
+    }
+
+    private void checkConnectionAndReconnect() {
+        if (RepRS2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
+        final var networkNode = owner.getBridgeNetworkNode();
+        if (networkNode == null) {
+            logger.warn("Bridge: Network node is null, triggering reconnection");
+            triggerReconnect("null_network_node");
+            return;
+        }
+        final var network = networkNode.getNetwork();
+        if (network == null) {
+            logger.warn("Bridge: Disconnected from RS2 network, triggering reconnection");
+            triggerReconnect("null_network");
+        }
+    }
+
+    private void triggerReconnect(final String reason) {
+        state = Rs2LifecycleState.IDLE;
+        rsNodeAttached = false;
+        beginInitialization(reason);
     }
 
     public void shutdown(final String reason, final boolean allowRestart) {
