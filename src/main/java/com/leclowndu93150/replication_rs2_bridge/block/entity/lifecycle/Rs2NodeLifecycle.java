@@ -124,7 +124,7 @@ public final class Rs2NodeLifecycle {
 
             if (!(element.getNetwork() instanceof MatterNetwork)) {
                 logger.warn("Bridge: Replication network element exists but not connected to MatterNetwork, re-adding");
-                networkManager.removeElement(element);
+                networkManager.removeElement(element.getPos());
                 final NetworkElement newElement = owner.createReplicationNetworkElement();
                 if (newElement != null) {
                     networkManager.addElement(newElement);

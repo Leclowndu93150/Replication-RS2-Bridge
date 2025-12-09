@@ -21,6 +21,8 @@ import com.leclowndu93150.replication_rs2_bridge.block.entity.storage.MatterItem
 import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.PatternSignature;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.ReplicationPatternTemplate;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.ReplicationTaskHandler;
+import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternRepository;
+import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternStorage;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.TaskSnapshotNbt;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
@@ -114,7 +116,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     
     private static boolean worldUnloading = false;
     private static final Set<RepRS2BridgeBlockEntity> activeBridges = new HashSet<>();
-    private final Map<PatternSignature, UUID> patternIds = new HashMap<>();
+    private CompoundTag pendingMigrationTag = null;
     private final ReplicationTaskHandler taskHandler;
 
     public RepRS2BridgeBlockEntity(BlockPos pos, BlockState state) {
@@ -206,8 +208,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 return;
             }
         }
-        
+
         if (level != null && !level.isClientSide()) {
+            migrateOldPatternMappings();
             nodeLifecycle.requestInitialization("on_load");
         }
     }
@@ -343,14 +346,24 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
 
     private void updateRS2Patterns(@Nullable final MatterNetwork replicationNetwork) {
-        if (!isActive() || networkNode == null || replicationNetwork == null) {
+        if (!isActive() || networkNode == null || replicationNetwork == null || level == null) {
             return;
         }
         final List<ReplicationPatternTemplate> templates = collectReplicationTemplates(replicationNetwork);
+        BridgePatternRepository repo = BridgePatternStorage.get(level);
+        Map<PatternSignature, UUID> patternIds = repo.getPatternsForBridge(blockId);
         if (templates.isEmpty()) {
-            patternIds.clear();
+            if (!patternIds.isEmpty()) {
+                patternIds.clear();
+                repo.setDirty();
+            }
         } else {
-            patternIds.keySet().retainAll(templates.stream().map(ReplicationPatternTemplate::signature).collect(Collectors.toSet()));
+            Set<PatternSignature> currentSignatures = templates.stream()
+                .map(ReplicationPatternTemplate::signature)
+                .collect(Collectors.toSet());
+            if (patternIds.keySet().retainAll(currentSignatures)) {
+                repo.setDirty();
+            }
         }
         networkNode.updatePatterns(templates);
     }
@@ -585,7 +598,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         taskHandler.saveLocalRequestState(tag, registries);
         taskHandler.saveLocalActiveTasks(tag, registries);
         saveTaskSnapshots(tag, registries);
-        savePatternIdMappings(tag);
     }
 
     @Override
@@ -603,7 +615,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         taskHandler.loadLocalRequestState(tag, registries);
         taskHandler.loadLocalActiveTasks(tag, registries);
         loadTaskSnapshots(tag, registries);
-        loadPatternIdMappings(tag);
+        if (tag.contains(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_LIST)) {
+            pendingMigrationTag = tag.copy();
+        }
         taskHandler.resetAfterDataLoad();
     }
 
@@ -775,33 +789,38 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     UUID getOrCreatePatternId(final PatternSignature signature) {
-        return patternIds.computeIfAbsent(signature, key -> UUID.randomUUID());
-    }
-    
-    private void savePatternIdMappings(final CompoundTag tag) {
-        if (patternIds.isEmpty()) {
-            return;
+        if (level == null) {
+            return UUID.randomUUID();
         }
-        ListTag list = new ListTag();
-        patternIds.forEach((signature, id) -> {
-            CompoundTag entry = signature.save();
-            entry.putUUID(TAG_PATTERN_ID, id);
-            list.add(entry);
-        });
-        tag.put(TAG_PATTERN_ID_MAPPINGS, list);
+        BridgePatternRepository repo = BridgePatternStorage.get(level);
+        Map<PatternSignature, UUID> patterns = repo.getPatternsForBridge(blockId);
+        UUID existing = patterns.get(signature);
+        if (existing != null) {
+            return existing;
+        }
+        UUID newId = UUID.randomUUID();
+        patterns.put(signature, newId);
+        repo.setDirty();
+        return newId;
     }
 
-    private void loadPatternIdMappings(final CompoundTag tag) {
-        patternIds.clear();
-        if (!tag.contains(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_LIST)) {
+    private void migrateOldPatternMappings() {
+        if (pendingMigrationTag == null || level == null) {
             return;
         }
-        ListTag list = tag.getList(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_COMPOUND);
+        Map<PatternSignature, UUID> oldPatterns = new HashMap<>();
+        ListTag list = pendingMigrationTag.getList(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_COMPOUND);
         for (Tag element : list) {
             CompoundTag entry = (CompoundTag) element;
             UUID patternId = entry.getUUID(TAG_PATTERN_ID);
-            patternIds.put(PatternSignature.load(entry), patternId);
+            oldPatterns.put(PatternSignature.load(entry), patternId);
         }
+        if (!oldPatterns.isEmpty()) {
+            BridgePatternRepository repo = BridgePatternStorage.get(level);
+            repo.setPatternsForBridge(blockId, oldPatterns);
+            LOGGER.info("Migrated {} pattern mappings for bridge {}", oldPatterns.size(), blockId);
+        }
+        pendingMigrationTag = null;
     }
 
     private void saveTaskSnapshots(CompoundTag tag, HolderLookup.Provider registries) {
