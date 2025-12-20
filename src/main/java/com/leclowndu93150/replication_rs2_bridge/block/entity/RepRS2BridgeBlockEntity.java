@@ -23,6 +23,7 @@ import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.Replicatio
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.ReplicationTaskHandler;
 import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternRepository;
 import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternStorage;
+import com.leclowndu93150.replication_rs2_bridge.storage.BridgeTaskSnapshotRepository;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.TaskSnapshotNbt;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
@@ -315,6 +316,11 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             }
             matterItemsStorage.refreshCache();
         }
+
+        // Periodically save task snapshots to repository (every 5 minutes for crash recovery)
+        if (level.getGameTime() % 6000 == 0 && initialized == 1) {
+            saveTaskSnapshotsToRepository();
+        }
         
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
             boolean updated = false;
@@ -597,7 +603,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         tag.putInt(TAG_PRIORITY, priority);
         taskHandler.saveLocalRequestState(tag, registries);
         taskHandler.saveLocalActiveTasks(tag, registries);
-        saveTaskSnapshots(tag, registries);
+        // Task snapshots are now saved to SavedData via saveTaskSnapshotsToRepository()
     }
 
     @Override
@@ -614,7 +620,12 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         nodeLifecycle.resetAfterDataLoad();
         taskHandler.loadLocalRequestState(tag, registries);
         taskHandler.loadLocalActiveTasks(tag, registries);
-        loadTaskSnapshots(tag, registries);
+        // Load task snapshots from SavedData repository instead of block entity NBT
+        loadTaskSnapshotsFromRepository();
+        // Legacy migration: if old NBT data exists, load and migrate it
+        if (tag.contains(TAG_RS_TASK_SNAPSHOTS, Tag.TAG_LIST)) {
+            loadTaskSnapshots(tag, registries);
+        }
         if (tag.contains(TAG_PATTERN_ID_MAPPINGS, Tag.TAG_LIST)) {
             pendingMigrationTag = tag.copy();
         }
@@ -624,6 +635,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     @Override
     public void setRemoved() {
         activeBridges.remove(this);
+        saveTaskSnapshotsToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("set_removed", false);
         }
@@ -632,6 +644,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     @Override
     public void onChunkUnloaded() {
+        saveTaskSnapshotsToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("chunk_unloaded", true);
         }
@@ -823,28 +836,50 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         pendingMigrationTag = null;
     }
 
-    private void saveTaskSnapshots(CompoundTag tag, HolderLookup.Provider registries) {
-        List<TaskSnapshot> snapshots = networkNode.getTaskSnapshots();
-        if (snapshots.isEmpty()) {
+    private void saveTaskSnapshotsToRepository() {
+        if (level == null || level.isClientSide() || blockId == null) {
             return;
         }
-        ListTag list = new ListTag();
-        for (TaskSnapshot snapshot : snapshots) {
-            list.add(TaskSnapshotNbt.encode(snapshot));
-        }
-        tag.put(TAG_RS_TASK_SNAPSHOTS, list);
+        List<TaskSnapshot> snapshots = networkNode.getTaskSnapshots();
+        BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
+        repo.setSnapshotsForBridge(blockId, snapshots);
     }
 
+    private void loadTaskSnapshotsFromRepository() {
+        if (level == null || level.isClientSide() || blockId == null) {
+            return;
+        }
+        BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
+        List<TaskSnapshot> snapshots = repo.getSnapshotsForBridge(blockId);
+        if (!snapshots.isEmpty()) {
+            networkNode.restoreTasks(snapshots);
+        }
+    }
+
+    /**
+     * Legacy method for migrating task snapshots from old NBT format.
+     * This is kept for backwards compatibility with existing worlds.
+     */
     private void loadTaskSnapshots(CompoundTag tag, HolderLookup.Provider registries) {
         if (!tag.contains(TAG_RS_TASK_SNAPSHOTS, Tag.TAG_LIST)) {
             return;
         }
         List<TaskSnapshot> snapshots = new ArrayList<>();
         for (Tag element : tag.getList(TAG_RS_TASK_SNAPSHOTS, Tag.TAG_COMPOUND)) {
-            snapshots.add(TaskSnapshotNbt.decode((CompoundTag) element));
+            try {
+                snapshots.add(TaskSnapshotNbt.decode((CompoundTag) element));
+            } catch (Exception e) {
+                LOGGER.warn("Failed to decode legacy task snapshot: {}", e.getMessage());
+            }
         }
         if (!snapshots.isEmpty()) {
             networkNode.restoreTasks(snapshots);
+            // Migrate to new storage - save to repository
+            if (level != null && !level.isClientSide() && blockId != null) {
+                BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
+                repo.setSnapshotsForBridge(blockId, snapshots);
+                LOGGER.info("Migrated {} task snapshots from NBT to SavedData for bridge {}", snapshots.size(), blockId);
+            }
         }
     }
     

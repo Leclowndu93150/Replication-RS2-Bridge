@@ -18,4 +18,17 @@ public class BridgePatternStorage {
             BridgePatternRepository.NAME
         );
     }
+
+    @SuppressWarnings("DataFlowIssue")
+    public static BridgeTaskSnapshotRepository getTaskSnapshots(Level level) {
+        ServerLevel serverLevel = level.getServer().getLevel(Level.OVERWORLD);
+        return serverLevel.getDataStorage().computeIfAbsent(
+            new SavedData.Factory<>(
+                BridgeTaskSnapshotRepository::new,
+                BridgeTaskSnapshotRepository::new,
+                null
+            ),
+            BridgeTaskSnapshotRepository.NAME
+        );
+    }
 }
