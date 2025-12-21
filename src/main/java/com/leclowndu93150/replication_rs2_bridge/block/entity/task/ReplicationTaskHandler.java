@@ -24,6 +24,8 @@ import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeNetwor
 import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.ReplicationPatternTemplate;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.model.ItemWithSourceId;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.model.TaskSourceInfo;
+import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternStorage;
+import com.leclowndu93150.replication_rs2_bridge.storage.BridgeTaskHandlerRepository;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskId;
 
@@ -154,33 +156,106 @@ public final class ReplicationTaskHandler {
         owner.setChanged();
     }
 
-    public void saveLocalRequestState(final CompoundTag tag, final HolderLookup.Provider registries) {
+    /**
+     * Saves all task handler data to the SavedData repository.
+     * This should be called periodically and on chunk unload/world save.
+     */
+    public void saveToRepository() {
+        final var level = owner.getLevel();
         final UUID blockId = owner.getBlockId();
-        if (blockId == null) {
+        if (level == null || level.isClientSide() || blockId == null) {
             return;
         }
+
+        final BridgeTaskHandlerRepository repo = BridgePatternStorage.getTaskHandler(level);
+        final BridgeTaskHandlerRepository.BridgeTaskData data = new BridgeTaskHandlerRepository.BridgeTaskData();
+
         final Map<ItemWithSourceId, Integer> localCounters = requestCounters.get(blockId);
         if (localCounters != null && !localCounters.isEmpty()) {
-            tag.put(TAG_LOCAL_REQUEST_COUNTERS, writeItemWithSourceList(localCounters, registries));
+            data.requestCounters = new HashMap<>(localCounters);
         }
+
         final Map<ItemStack, Integer> localPatternRequests = patternRequests.get(blockId);
         if (localPatternRequests != null && !localPatternRequests.isEmpty()) {
-            tag.put(TAG_LOCAL_PATTERN_REQUESTS, writeItemCountList(localPatternRequests, registries));
+            data.patternRequests = new HashMap<>(localPatternRequests);
         }
+
         final Map<ItemStack, Integer> localPatternRequestsBySource = patternRequestsBySource.get(blockId);
         if (localPatternRequestsBySource != null && !localPatternRequestsBySource.isEmpty()) {
-            tag.put(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, writeItemCountList(localPatternRequestsBySource, registries));
+            data.patternRequestsBySource = new HashMap<>(localPatternRequestsBySource);
+        }
+
+        final Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
+        if (tasks != null && !tasks.isEmpty()) {
+            data.activeTasks = new HashMap<>(tasks);
+        }
+
+        repo.setDataForBridge(blockId, data);
+    }
+
+    /**
+     * Loads all task handler data from the SavedData repository.
+     * This should be called on block entity load.
+     */
+    public void loadFromRepository() {
+        final var level = owner.getLevel();
+        final UUID blockId = owner.getBlockId();
+        if (level == null || level.isClientSide() || blockId == null) {
+            return;
+        }
+
+        final BridgeTaskHandlerRepository repo = BridgePatternStorage.getTaskHandler(level);
+        final BridgeTaskHandlerRepository.BridgeTaskData data = repo.getDataForBridge(blockId);
+
+        requestCounters.remove(blockId);
+        patternRequests.remove(blockId);
+        patternRequestsBySource.remove(blockId);
+        activeTasks.remove(blockId);
+
+        if (!data.requestCounters.isEmpty()) {
+            requestCounters.put(blockId, new HashMap<>(data.requestCounters));
+        }
+        if (!data.patternRequests.isEmpty()) {
+            patternRequests.put(blockId, new HashMap<>(data.patternRequests));
+        }
+        if (!data.patternRequestsBySource.isEmpty()) {
+            patternRequestsBySource.put(blockId, new HashMap<>(data.patternRequestsBySource));
+        }
+        if (!data.activeTasks.isEmpty()) {
+            activeTasks.put(blockId, new HashMap<>(data.activeTasks));
         }
     }
 
+    /**
+     * Legacy method - no longer saves to NBT, data is now in SavedData.
+     * Kept for API compatibility but does nothing.
+     * @deprecated Use {@link #saveToRepository()} instead
+     */
+    @Deprecated
+    public void saveLocalRequestState(final CompoundTag tag, final HolderLookup.Provider registries) {
+        // No longer saving to NBT - data is now stored in SavedData repository
+    }
+
+    /**
+     * Legacy method for migrating data from old NBT format to SavedData.
+     * Only loads if data exists in NBT (for migration), then saves to repository.
+     */
     public void loadLocalRequestState(final CompoundTag tag, final HolderLookup.Provider registries) {
         final UUID blockId = owner.getBlockId();
         if (blockId == null) {
             return;
         }
-        requestCounters.remove(blockId);
-        patternRequests.remove(blockId);
-        patternRequestsBySource.remove(blockId);
+
+        boolean hasMigrationData = tag.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)
+            || tag.contains(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_LIST)
+            || tag.contains(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_LIST);
+
+        if (!hasMigrationData) {
+            return;
+        }
+
+        LOGGER.info("Migrating task handler request state from NBT to SavedData for bridge {}", blockId);
+
         if (tag.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)) {
             final Map<ItemWithSourceId, Integer> counters =
                 readItemWithSourceList(tag.getList(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_COMPOUND), registries);
@@ -202,34 +277,47 @@ public final class ReplicationTaskHandler {
                 patternRequestsBySource.put(blockId, requests);
             }
         }
+
+        // Save migrated data to repository
+        saveToRepository();
+        LOGGER.info("Migration complete for bridge {} request state", blockId);
     }
 
+    /**
+     * Legacy method - no longer saves to NBT, data is now in SavedData.
+     * Kept for API compatibility but does nothing.
+     * @deprecated Use {@link #saveToRepository()} instead
+     */
+    @Deprecated
     public void saveLocalActiveTasks(final CompoundTag tag, final HolderLookup.Provider registries) {
-        final UUID blockId = owner.getBlockId();
-        if (blockId == null) {
-            return;
-        }
-        final Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
-        if (tasks == null || tasks.isEmpty()) {
-            return;
-        }
-        tag.put(TAG_LOCAL_ACTIVE_TASKS, writeActiveTaskList(tasks, registries));
+        // No longer saving to NBT - data is now stored in SavedData repository
     }
 
+    /**
+     * Legacy method for migrating active tasks from old NBT format to SavedData.
+     * Only loads if data exists in NBT (for migration), then saves to repository.
+     */
     public void loadLocalActiveTasks(final CompoundTag tag, final HolderLookup.Provider registries) {
         final UUID blockId = owner.getBlockId();
         if (blockId == null) {
             return;
         }
-        activeTasks.remove(blockId);
+
         if (!tag.contains(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_LIST)) {
             return;
         }
+
+        LOGGER.info("Migrating active tasks from NBT to SavedData for bridge {}", blockId);
+
         final Map<String, TaskSourceInfo> tasks =
             readActiveTaskList(tag.getList(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_COMPOUND), registries);
         if (!tasks.isEmpty()) {
             activeTasks.put(blockId, tasks);
         }
+
+        // Save migrated data to repository
+        saveToRepository();
+        LOGGER.info("Migration complete for bridge {} active tasks ({} tasks)", blockId, tasks.size());
     }
 
     public Map<String, Map<IMatterType, Long>> getAllocatedMatterByTask() {

@@ -212,6 +212,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
         if (level != null && !level.isClientSide()) {
             migrateOldPatternMappings();
+            // Load task handler data from SavedData repository (now that level is available)
+            taskHandler.loadFromRepository();
             nodeLifecycle.requestInitialization("on_load");
         }
     }
@@ -317,9 +319,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             matterItemsStorage.refreshCache();
         }
 
-        // Periodically save task snapshots to repository (every 5 minutes for crash recovery)
+        // Periodically save task data to repository (every 5 minutes for crash recovery)
         if (level.getGameTime() % 6000 == 0 && initialized == 1) {
             saveTaskSnapshotsToRepository();
+            taskHandler.saveToRepository();
         }
         
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
@@ -601,14 +604,17 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             tag.putUUID("BlockId", blockId);
         }
         tag.putInt(TAG_PRIORITY, priority);
+        // Task handler data is now saved to SavedData repository, not block entity NBT
+        // The deprecated methods are kept for API compatibility but do nothing
         taskHandler.saveLocalRequestState(tag, registries);
         taskHandler.saveLocalActiveTasks(tag, registries);
-        // Task snapshots are now saved to SavedData via saveTaskSnapshotsToRepository()
+        // Task snapshots are saved to SavedData via saveTaskSnapshotsToRepository()
     }
 
     @Override
     public void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.loadAdditional(tag, registries);
+        System.out.println(tag);
         if (tag.contains("BlockId")) {
             blockId = tag.getUUID("BlockId");
         } else {
@@ -618,6 +624,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             priority = tag.getInt(TAG_PRIORITY);
         }
         nodeLifecycle.resetAfterDataLoad();
+        // Legacy migration: if old NBT data exists, migrate it to SavedData
         taskHandler.loadLocalRequestState(tag, registries);
         taskHandler.loadLocalActiveTasks(tag, registries);
         // Load task snapshots from SavedData repository instead of block entity NBT
@@ -636,6 +643,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     public void setRemoved() {
         activeBridges.remove(this);
         saveTaskSnapshotsToRepository();
+        taskHandler.saveToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("set_removed", false);
         }
@@ -645,6 +653,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     @Override
     public void onChunkUnloaded() {
         saveTaskSnapshotsToRepository();
+        taskHandler.saveToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("chunk_unloaded", true);
         }
@@ -794,6 +803,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
     private void markTaskSnapshotsDirty() {
         taskSnapshotSaveTicks = 0;
+        saveTaskSnapshotsToRepository();
         setChanged();
     }
 
