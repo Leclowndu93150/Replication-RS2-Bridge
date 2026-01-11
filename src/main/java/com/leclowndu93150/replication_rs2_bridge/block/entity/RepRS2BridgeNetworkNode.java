@@ -79,6 +79,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
         }
         super.setNetwork(newNetwork);
         if (newNetwork != null) {
+            LOGGER.warn("Bridge RS2 node {} attached to network {}", blockEntity.getBlockId(), newNetwork.hashCode());
             tasks.attachAll(newNetwork);
             if (isActive()) {
                 final StorageNetworkComponent storage = newNetwork.getComponent(StorageNetworkComponent.class);
@@ -87,6 +88,8 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
                 }
             }
             rebuildDeferredTasks();
+        } else {
+            LOGGER.warn("Bridge RS2 node {} detached from network", blockEntity.getBlockId());
         }
     }
 
@@ -153,21 +156,14 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
         final List<Pattern> removed = new ArrayList<>();
 
         for (ReplicationPatternTemplate template : templates) {
-            final ReplicationPatternInstance existing = patternsBySignature.get(template.signature());
-            if (existing != null) {
-                final ReplicationPatternInstance updated = new ReplicationPatternInstance(existing.pattern(), template);
-                nextBySignature.put(template.signature(), updated);
-                nextByPattern.put(existing.pattern(), updated);
-            } else {
-                final Pattern pattern = createPattern(template);
-                if (pattern == null) {
-                    continue;
-                }
-                final ReplicationPatternInstance instance = new ReplicationPatternInstance(pattern, template);
-                nextBySignature.put(template.signature(), instance);
-                nextByPattern.put(pattern, instance);
-                added.add(pattern);
+            final Pattern pattern = createPattern(template);
+            if (pattern == null) {
+                continue;
             }
+            final ReplicationPatternInstance instance = new ReplicationPatternInstance(pattern, template);
+            nextBySignature.put(template.signature(), instance);
+            nextByPattern.put(pattern, instance);
+            added.add(pattern);
         }
 
         for (Pattern pattern : patternsByPattern.keySet()) {
@@ -193,6 +189,7 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
     }
 
     public void restoreTasks(final List<TaskSnapshot> snapshots) {
+        LOGGER.warn("Bridge RS2 node {} queued {} snapshots for restore", blockEntity.getBlockId(), snapshots.size());
         deferredSnapshots.clear();
         deferredSnapshots.addAll(snapshots);
         rebuildDeferredTasks();
@@ -202,22 +199,36 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
         if (deferredSnapshots.isEmpty()) {
             return;
         }
+        if (network == null) {
+            LOGGER.warn("Bridge RS2 node {} skipping deferred task rebuild (no network)", blockEntity.getBlockId());
+            return;
+        }
+        if (parents.isEmpty()) {
+            LOGGER.warn("Bridge RS2 node {} skipping deferred task rebuild (no parents yet)", blockEntity.getBlockId());
+            return;
+        }
+        LOGGER.warn("Bridge RS2 node {} rebuilding {} deferred tasks", blockEntity.getBlockId(), deferredSnapshots.size());
         for (TaskSnapshot snapshot : deferredSnapshots) {
-            tasks.add(new TaskImpl(snapshot), network);
+            final TaskImpl task = new TaskImpl(snapshot);
+            tasks.add(task, network);
+            parents.forEach(parent -> parent.taskAdded(this, task));
+            LOGGER.warn("Bridge RS2 node {} restored task {}", blockEntity.getBlockId(), task.getId());
         }
         deferredSnapshots.clear();
     }
 
     private Pattern createPattern(final ReplicationPatternTemplate template) {
         final PatternBuilder builder = PatternBuilder.pattern(PatternType.EXTERNAL);
-        for (Map.Entry<IMatterType, Long> entry : template.matterCost().entrySet()) {
-            final ItemStack matterStack = UniversalMatterItem.createMatterStack(entry.getKey(), 1);
-            if (matterStack.isEmpty()) {
-                LOGGER.warn("Skipping pattern for {} due to missing matter item {}", template.outputStack(), entry.getKey().getName());
-                return null;
+        template.matterCost().forEach((matterType, amount) -> {
+            if (amount <= 0) {
+                return;
             }
-            builder.ingredient(ItemResource.ofItemStack(matterStack), entry.getValue());
-        }
+            final ItemStack ingredientStack = UniversalMatterItem.createMatterStack(matterType, 1);
+            if (ingredientStack.isEmpty()) {
+                return;
+            }
+            builder.ingredient(amount).input(ItemResource.ofItemStack(ingredientStack)).end();
+        });
         final ItemStack output = template.outputStack();
         builder.output(ItemResource.ofItemStack(output), output.getCount());
         final UUID patternId = blockEntity.getOrCreatePatternId(template.signature());
@@ -227,9 +238,11 @@ public class RepRS2BridgeNetworkNode extends AbstractNetworkNode
 
     @Override
     public void onAddedIntoContainer(final ParentContainer parentContainer) {
+        LOGGER.warn("Bridge RS2 node {} added into container {}", blockEntity.getBlockId(), parentContainer.getClass().getSimpleName());
         parents.add(parentContainer);
         tasks.onAddedIntoContainer(parentContainer);
         patternsByPattern.keySet().forEach(pattern -> parentContainer.add(this, pattern, priority));
+        rebuildDeferredTasks();
     }
 
     @Override

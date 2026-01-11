@@ -18,14 +18,13 @@ import com.buuz135.replication.block.tile.ChipStorageBlockEntity;
 import com.buuz135.replication.calculation.MatterValue;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
+import com.buuz135.replication.ReplicationRegistry;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeBlockEntity;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.RepRS2BridgeNetworkNode;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.ReplicationPatternTemplate;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.model.ItemWithSourceId;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.model.TaskSourceInfo;
-import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternStorage;
-import com.leclowndu93150.replication_rs2_bridge.storage.BridgeTaskHandlerRepository;
 import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.api.autocrafting.task.TaskId;
 
@@ -35,6 +34,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -46,6 +46,12 @@ public final class ReplicationTaskHandler {
     private static final String TAG_LOCAL_PATTERN_REQUESTS = "LocalPatternRequests";
     private static final String TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE = "LocalPatternRequestsBySource";
     private static final String TAG_LOCAL_ACTIVE_TASKS = "LocalActiveTasks";
+    private static final String TAG_ALLOCATED_MATTER = "AllocatedMatter";
+    private static final String TAG_TASK_ID = "TaskId";
+    private static final String TAG_MATTER_LIST = "MatterList";
+    private static final String TAG_MATTER_ID = "MatterId"; // int registry id (preferred)
+    private static final String TAG_MATTER_NAME = "MatterName"; // fallback string key
+    private static final String TAG_AMOUNT = "Amount";
     private static final int REQUEST_ACCUMULATION_TICKS = 100;
 
     private final RepRS2BridgeBlockEntity owner;
@@ -141,6 +147,13 @@ public final class ReplicationTaskHandler {
                         patternRequestsBySource.remove(blockId);
                     }
                 }
+                final Map<ItemStack, Integer> globalRequests = patternRequests.get(blockId);
+                if (globalRequests != null) {
+                    globalRequests.remove(info.getItemStack());
+                    if (globalRequests.isEmpty()) {
+                        patternRequests.remove(blockId);
+                    }
+                }
             }
             allocatedMatterByTask.remove(replicationTaskId);
         }
@@ -157,168 +170,86 @@ public final class ReplicationTaskHandler {
         owner.setChanged();
     }
 
-    /**
-     * Saves all task handler data to the SavedData repository.
-     * This should be called periodically and on chunk unload/world save.
-     */
-    public void saveToRepository() {
-        final var level = owner.getLevel();
+    public void saveToNbt(final CompoundTag tag, final HolderLookup.Provider registries) {
         final UUID blockId = owner.getBlockId();
-        if (level == null || level.isClientSide() || blockId == null) {
+        if (blockId == null || tag == null) {
             return;
         }
 
-        final BridgeTaskHandlerRepository repo = BridgePatternStorage.getTaskHandler(level);
-        final BridgeTaskHandlerRepository.BridgeTaskData data = new BridgeTaskHandlerRepository.BridgeTaskData();
+        final CompoundTag handler = new CompoundTag();
 
         final Map<ItemWithSourceId, Integer> localCounters = requestCounters.get(blockId);
         if (localCounters != null && !localCounters.isEmpty()) {
-            data.requestCounters = new HashMap<>(localCounters);
+            handler.put(TAG_LOCAL_REQUEST_COUNTERS, writeItemWithSourceList(localCounters, registries));
         }
 
         final Map<ItemStack, Integer> localPatternRequests = patternRequests.get(blockId);
         if (localPatternRequests != null && !localPatternRequests.isEmpty()) {
-            data.patternRequests = new HashMap<>(localPatternRequests);
+            handler.put(TAG_LOCAL_PATTERN_REQUESTS, writeItemCountList(localPatternRequests, registries));
         }
 
         final Map<ItemStack, Integer> localPatternRequestsBySource = patternRequestsBySource.get(blockId);
         if (localPatternRequestsBySource != null && !localPatternRequestsBySource.isEmpty()) {
-            data.patternRequestsBySource = new HashMap<>(localPatternRequestsBySource);
+            handler.put(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, writeItemCountList(localPatternRequestsBySource, registries));
         }
 
         final Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
         if (tasks != null && !tasks.isEmpty()) {
-            data.activeTasks = new HashMap<>(tasks);
+            handler.put(TAG_LOCAL_ACTIVE_TASKS, writeActiveTaskList(tasks, registries));
         }
 
-        repo.setDataForBridge(blockId, data);
+        final Map<String, Map<String, Long>> allocated = serializeAllocatedMatter();
+        if (!allocated.isEmpty()) {
+            handler.put(TAG_ALLOCATED_MATTER, writeAllocatedMatterList(allocated));
+        }
+
+        tag.put("TaskHandler", handler);
     }
 
-    /**
-     * Loads all task handler data from the SavedData repository.
-     * This should be called on block entity load.
-     */
-    public void loadFromRepository() {
-        final var level = owner.getLevel();
+    public void loadFromNbt(final CompoundTag tag, final HolderLookup.Provider registries) {
         final UUID blockId = owner.getBlockId();
-        if (level == null || level.isClientSide() || blockId == null) {
+        if (blockId == null || tag == null || !tag.contains("TaskHandler", Tag.TAG_COMPOUND)) {
             return;
         }
-
-        final BridgeTaskHandlerRepository repo = BridgePatternStorage.getTaskHandler(level);
-        final BridgeTaskHandlerRepository.BridgeTaskData data = repo.getDataForBridge(blockId);
+        final CompoundTag handler = tag.getCompound("TaskHandler");
 
         requestCounters.remove(blockId);
         patternRequests.remove(blockId);
         patternRequestsBySource.remove(blockId);
         activeTasks.remove(blockId);
+        allocatedMatterByTask.clear();
 
-        if (!data.requestCounters.isEmpty()) {
-            requestCounters.put(blockId, new HashMap<>(data.requestCounters));
+        if (handler.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)) {
+            requestCounters.put(blockId, readItemWithSourceList(handler.getList(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_COMPOUND), registries));
         }
-        if (!data.patternRequests.isEmpty()) {
-            patternRequests.put(blockId, new HashMap<>(data.patternRequests));
+        if (handler.contains(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_LIST)) {
+            patternRequests.put(blockId, readItemCountList(handler.getList(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_COMPOUND), registries));
         }
-        if (!data.patternRequestsBySource.isEmpty()) {
-            patternRequestsBySource.put(blockId, new HashMap<>(data.patternRequestsBySource));
+        if (handler.contains(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_LIST)) {
+            patternRequestsBySource.put(blockId, readItemCountList(handler.getList(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_COMPOUND), registries));
         }
-        if (!data.activeTasks.isEmpty()) {
-            activeTasks.put(blockId, new HashMap<>(data.activeTasks));
+        if (handler.contains(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_LIST)) {
+            activeTasks.put(blockId, readActiveTaskList(handler.getList(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_COMPOUND), registries));
         }
+        if (handler.contains(TAG_ALLOCATED_MATTER, Tag.TAG_LIST)) {
+            deserializeAllocatedMatter(readAllocatedMatterList(handler.getList(TAG_ALLOCATED_MATTER, Tag.TAG_COMPOUND)));
+        }
+        pruneOrphanAllocations(blockId);
     }
 
-    /**
-     * Legacy method - no longer saves to NBT, data is now in SavedData.
-     * Kept for API compatibility but does nothing.
-     * @deprecated Use {@link #saveToRepository()} instead
-     */
+    // Legacy methods kept for API compatibility; no-ops now that persistence is in block NBT.
     @Deprecated
     public void saveLocalRequestState(final CompoundTag tag, final HolderLookup.Provider registries) {
-        // No longer saving to NBT - data is now stored in SavedData repository
     }
 
-    /**
-     * Legacy method for migrating data from old NBT format to SavedData.
-     * Only loads if data exists in NBT (for migration), then saves to repository.
-     */
     public void loadLocalRequestState(final CompoundTag tag, final HolderLookup.Provider registries) {
-        final UUID blockId = owner.getBlockId();
-        if (blockId == null) {
-            return;
-        }
-
-        boolean hasMigrationData = tag.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)
-            || tag.contains(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_LIST)
-            || tag.contains(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_LIST);
-
-        if (!hasMigrationData) {
-            return;
-        }
-
-        LOGGER.info("Migrating task handler request state from NBT to SavedData for bridge {}", blockId);
-
-        if (tag.contains(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_LIST)) {
-            final Map<ItemWithSourceId, Integer> counters =
-                readItemWithSourceList(tag.getList(TAG_LOCAL_REQUEST_COUNTERS, Tag.TAG_COMPOUND), registries);
-            if (!counters.isEmpty()) {
-                requestCounters.put(blockId, counters);
-            }
-        }
-        if (tag.contains(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_LIST)) {
-            final Map<ItemStack, Integer> requests =
-                readItemCountList(tag.getList(TAG_LOCAL_PATTERN_REQUESTS, Tag.TAG_COMPOUND), registries);
-            if (!requests.isEmpty()) {
-                patternRequests.put(blockId, requests);
-            }
-        }
-        if (tag.contains(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_LIST)) {
-            final Map<ItemStack, Integer> requests =
-                readItemCountList(tag.getList(TAG_LOCAL_PATTERN_REQUESTS_BY_SOURCE, Tag.TAG_COMPOUND), registries);
-            if (!requests.isEmpty()) {
-                patternRequestsBySource.put(blockId, requests);
-            }
-        }
-
-        // Save migrated data to repository
-        saveToRepository();
-        LOGGER.info("Migration complete for bridge {} request state", blockId);
     }
 
-    /**
-     * Legacy method - no longer saves to NBT, data is now in SavedData.
-     * Kept for API compatibility but does nothing.
-     * @deprecated Use {@link #saveToRepository()} instead
-     */
     @Deprecated
     public void saveLocalActiveTasks(final CompoundTag tag, final HolderLookup.Provider registries) {
-        // No longer saving to NBT - data is now stored in SavedData repository
     }
 
-    /**
-     * Legacy method for migrating active tasks from old NBT format to SavedData.
-     * Only loads if data exists in NBT (for migration), then saves to repository.
-     */
     public void loadLocalActiveTasks(final CompoundTag tag, final HolderLookup.Provider registries) {
-        final UUID blockId = owner.getBlockId();
-        if (blockId == null) {
-            return;
-        }
-
-        if (!tag.contains(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_LIST)) {
-            return;
-        }
-
-        LOGGER.info("Migrating active tasks from NBT to SavedData for bridge {}", blockId);
-
-        final Map<String, TaskSourceInfo> tasks =
-            readActiveTaskList(tag.getList(TAG_LOCAL_ACTIVE_TASKS, Tag.TAG_COMPOUND), registries);
-        if (!tasks.isEmpty()) {
-            activeTasks.put(blockId, tasks);
-        }
-
-        // Save migrated data to repository
-        saveToRepository();
-        LOGGER.info("Migration complete for bridge {} active tasks ({} tasks)", blockId, tasks.size());
     }
 
     public Map<String, Map<IMatterType, Long>> getAllocatedMatterByTask() {
@@ -340,6 +271,47 @@ public final class ReplicationTaskHandler {
         needsTaskRescan = true;
     }
 
+    public void prepareForSave(@Nullable final MatterNetwork replicationNetwork) {
+        if (replicationNetwork != null) {
+            cleanupCompletedTasks(replicationNetwork);
+            cancelOrphanReplicationTasks(replicationNetwork);
+        }
+        pruneOrphanAllocations(owner.getBlockId());
+    }
+
+    public void cancelAllReplicationTasks(@Nullable final MatterNetwork replicationNetwork) {
+        if (replicationNetwork == null || owner.getLevel() == null) {
+            return;
+        }
+        final ServerLevel serverLevel = owner.getLevel() instanceof ServerLevel server ? server : null;
+        final UUID blockId = owner.getBlockId();
+        final var pendingTasks = replicationNetwork.getTaskManager().getPendingTasks();
+        for (String taskId : new ArrayList<>(pendingTasks.keySet())) {
+            final var task = pendingTasks.get(taskId);
+            if (task == null || task.getSource() == null || !task.getSource().equals(owner.getBlockPos())) {
+                continue;
+            }
+            replicationNetwork.cancelTask(taskId, serverLevel);
+            pendingTasks.remove(taskId);
+        }
+        if (blockId != null) {
+            activeTasks.remove(blockId);
+            patternRequests.remove(blockId);
+            patternRequestsBySource.remove(blockId);
+        }
+        allocatedMatterByTask.clear();
+        owner.setChanged();
+    }
+
+    public void rebuildAllocationState() {
+        owner.getMatterStorage().refreshCache();
+        final RepRS2BridgeNetworkNode networkNode = owner.getBridgeNetworkNode();
+        if (networkNode != null) {
+            networkNode.refreshStorageInNetwork();
+        }
+        owner.setChanged();
+    }
+
     public void forceImmediateProcessing() {
         requestCounterTicks = REQUEST_ACCUMULATION_TICKS;
     }
@@ -352,6 +324,54 @@ public final class ReplicationTaskHandler {
         requestCounters.clear();
         patternRequests.clear();
         patternRequestsBySource.clear();
+    }
+
+    public void compactIfIdle(final boolean hasRs2Tasks) {
+        if (hasRs2Tasks) {
+            return;
+        }
+        if (!activeTasks.isEmpty()) {
+            return;
+        }
+        final UUID blockId = owner.getBlockId();
+        boolean changed = false;
+        if (!allocatedMatterByTask.isEmpty()) {
+            allocatedMatterByTask.clear();
+            changed = true;
+        }
+        if (blockId != null) {
+            if (patternRequests.remove(blockId) != null) {
+                changed = true;
+            }
+            if (patternRequestsBySource.remove(blockId) != null) {
+                changed = true;
+            }
+            if (requestCounters.remove(blockId) != null) {
+                changed = true;
+            }
+        }
+        if (changed) {
+            owner.setChanged();
+        }
+    }
+
+    private void pruneOrphanAllocations(final UUID blockId) {
+        if (blockId == null) {
+            return;
+        }
+        final Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
+        if (tasks == null || tasks.isEmpty()) {
+            if (!allocatedMatterByTask.isEmpty()) {
+                allocatedMatterByTask.clear();
+                owner.setChanged();
+            }
+            return;
+        }
+        final var validTaskIds = new ArrayList<>(tasks.keySet());
+        boolean changed = allocatedMatterByTask.keySet().removeIf(taskId -> !validTaskIds.contains(taskId));
+        if (changed) {
+            owner.setChanged();
+        }
     }
 
     private void cleanupCompletedTasks(@Nullable final MatterNetwork replicationNetwork) {
@@ -370,8 +390,24 @@ public final class ReplicationTaskHandler {
                 if (pendingTasks.containsKey(taskId)) {
                     continue;
                 }
-                sourceTasks.remove(taskId);
+                final TaskSourceInfo info = sourceTasks.remove(taskId);
                 allocatedMatterByTask.remove(taskId);
+                if (info != null && info.getItemStack() != null) {
+                    final Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.get(sourceId);
+                    if (sourceRequests != null) {
+                        sourceRequests.remove(info.getItemStack());
+                        if (sourceRequests.isEmpty()) {
+                            patternRequestsBySource.remove(sourceId);
+                        }
+                    }
+                    final Map<ItemStack, Integer> globalRequests = patternRequests.get(sourceId);
+                    if (globalRequests != null) {
+                        globalRequests.remove(info.getItemStack());
+                        if (globalRequests.isEmpty()) {
+                            patternRequests.remove(sourceId);
+                        }
+                    }
+                }
                 removedAny = true;
             }
             if (sourceTasks.isEmpty()) {
@@ -386,6 +422,29 @@ public final class ReplicationTaskHandler {
                 networkNode.refreshStorageInNetwork();
             }
             owner.setChanged();
+        }
+    }
+
+    private void cancelOrphanReplicationTasks(final MatterNetwork replicationNetwork) {
+        final UUID blockId = owner.getBlockId();
+        if (blockId == null) {
+            return;
+        }
+        final var pendingTasks = replicationNetwork.getTaskManager().getPendingTasks();
+        for (String taskId : new ArrayList<>(pendingTasks.keySet())) {
+            final var task = pendingTasks.get(taskId);
+            if (task == null || task.getSource() == null) {
+                continue;
+            }
+            if (!task.getSource().equals(owner.getBlockPos())) {
+                continue;
+            }
+            final Map<String, TaskSourceInfo> tasks = activeTasks.get(blockId);
+            if (tasks != null && tasks.containsKey(taskId)) {
+                continue;
+            }
+            replicationNetwork.cancelTask(taskId, owner.getLevel() instanceof ServerLevel server ? server : null);
+            pendingTasks.remove(taskId);
         }
     }
 
@@ -480,6 +539,7 @@ public final class ReplicationTaskHandler {
         sourceRequests.put(requestedStack, currentPatternRequests + amount);
 
         extractMatterForTask(pattern, amount, taskId);
+        owner.setChanged();
     }
 
     private @NotNull TaskSourceInfo getTaskSourceInfo(final ItemStack itemStack, final UUID sourceId) {
@@ -619,5 +679,136 @@ public final class ReplicationTaskHandler {
             map.put(taskId, new TaskSourceInfo(stack, owner.getBlockId(), rs2TaskId));
         }
         return map;
+    }
+
+    private Map<String, Map<String, Long>> serializeAllocatedMatter() {
+        final Map<String, Map<String, Long>> serialized = new HashMap<>();
+        allocatedMatterByTask.forEach((taskId, allocations) -> {
+            if (allocations.isEmpty()) {
+                return;
+            }
+            final Map<String, Long> matterMap = new HashMap<>();
+            allocations.forEach((matterType, amount) -> {
+                if (amount <= 0) {
+                    return;
+                }
+                final Integer numericId = ReplicationRegistry.MATTER_TYPES_REGISTRY.getId(matterType);
+                if (numericId != null && numericId >= 0) {
+                    matterMap.put(Integer.toString(numericId), amount);
+                } else {
+                    final ResourceLocation key = ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(matterType);
+                    if (key != null) {
+                        matterMap.put(key.toString(), amount);
+                    }
+                }
+            });
+            if (!matterMap.isEmpty()) {
+                serialized.put(taskId, matterMap);
+            }
+        });
+        return serialized;
+    }
+
+    private ListTag writeAllocatedMatterList(final Map<String, Map<String, Long>> allocated) {
+        final ListTag list = new ListTag();
+        allocated.forEach((taskId, matterMap) -> {
+            if (matterMap.isEmpty()) {
+                return;
+            }
+            final CompoundTag entry = new CompoundTag();
+            entry.putString(TAG_TASK_ID, taskId);
+            final ListTag matterList = new ListTag();
+            matterMap.forEach((matterId, amount) -> {
+                final CompoundTag matterEntry = new CompoundTag();
+                Integer numericId = null;
+                try {
+                    numericId = Integer.parseInt(matterId);
+                } catch (NumberFormatException ignored) {
+                }
+                if (numericId == null || numericId < 0) {
+                    final ResourceLocation key = ResourceLocation.tryParse(matterId);
+                    final IMatterType type = key != null ? ReplicationRegistry.MATTER_TYPES_REGISTRY.get(key) : null;
+                    numericId = type != null ? ReplicationRegistry.MATTER_TYPES_REGISTRY.getId(type) : null;
+                }
+                if (numericId != null && numericId >= 0) {
+                    matterEntry.putInt(TAG_MATTER_ID, numericId);
+                } else {
+                    matterEntry.putString(TAG_MATTER_NAME, matterId);
+                }
+                matterEntry.putLong(TAG_AMOUNT, amount);
+                matterList.add(matterEntry);
+            });
+            entry.put(TAG_MATTER_LIST, matterList);
+            list.add(entry);
+        });
+        return list;
+    }
+
+    private Map<String, Map<String, Long>> readAllocatedMatterList(final ListTag list) {
+        final Map<String, Map<String, Long>> allocated = new HashMap<>();
+        for (Tag element : list) {
+            final CompoundTag entry = (CompoundTag) element;
+            final String taskId = entry.getString(TAG_TASK_ID);
+            if (taskId == null || taskId.isEmpty()) {
+                continue;
+            }
+            final Map<String, Long> matters = new HashMap<>();
+            for (Tag matterTag : entry.getList(TAG_MATTER_LIST, Tag.TAG_COMPOUND)) {
+                final CompoundTag matterEntry = (CompoundTag) matterTag;
+                String matterId = matterEntry.getString(TAG_MATTER_NAME);
+                if (matterEntry.contains(TAG_MATTER_ID, Tag.TAG_INT)) {
+                    final IMatterType type =
+                        ReplicationRegistry.MATTER_TYPES_REGISTRY.byId(matterEntry.getInt(TAG_MATTER_ID));
+                    if (type != null && ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(type) != null) {
+                        matterId = ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(type).toString();
+                    }
+                } else if (!matterId.isEmpty()) {
+                    try {
+                        final int numericId = Integer.parseInt(matterId);
+                        final IMatterType type = ReplicationRegistry.MATTER_TYPES_REGISTRY.byId(numericId);
+                        if (type != null && ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(type) != null) {
+                            matterId = ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(type).toString();
+                        }
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                final long amount = matterEntry.getLong(TAG_AMOUNT);
+                if (!matterId.isEmpty() && amount > 0) {
+                    matters.put(matterId, amount);
+                }
+            }
+            if (!matters.isEmpty()) {
+                allocated.put(taskId, matters);
+            }
+        }
+        return allocated;
+    }
+
+    private void deserializeAllocatedMatter(final Map<String, Map<String, Long>> serialized) {
+        allocatedMatterByTask.clear();
+        serialized.forEach((taskId, matterMap) -> {
+            final Map<IMatterType, Long> allocations = new HashMap<>();
+            matterMap.forEach((matterId, amount) -> {
+                if (amount <= 0) {
+                    return;
+                }
+                IMatterType type = null;
+                try {
+                    final int numericId = Integer.parseInt(matterId);
+                    type = ReplicationRegistry.MATTER_TYPES_REGISTRY.byId(numericId);
+                } catch (NumberFormatException ignored) {
+                }
+                if (type == null) {
+                    final ResourceLocation key = ResourceLocation.tryParse(matterId);
+                    type = key != null ? ReplicationRegistry.MATTER_TYPES_REGISTRY.get(key) : null;
+                }
+                if (type != null) {
+                    allocations.put(type, amount);
+                }
+            });
+            if (!allocations.isEmpty()) {
+                allocatedMatterByTask.put(taskId, allocations);
+            }
+        });
     }
 }

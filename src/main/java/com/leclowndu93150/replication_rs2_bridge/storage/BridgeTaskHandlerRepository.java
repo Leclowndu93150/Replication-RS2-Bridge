@@ -28,6 +28,11 @@ public class BridgeTaskHandlerRepository extends SavedData {
     private static final String TAG_PATTERN_REQUESTS = "PatternRequests";
     private static final String TAG_PATTERN_REQUESTS_BY_SOURCE = "PatternRequestsBySource";
     private static final String TAG_ACTIVE_TASKS = "ActiveTasks";
+    private static final String TAG_ALLOCATED_MATTER = "AllocatedMatter";
+    private static final String TAG_TASK_ID = "TaskId";
+    private static final String TAG_MATTER = "Matter";
+    private static final String TAG_MATTER_TYPE = "MatterType";
+    private static final String TAG_AMOUNT = "Amount";
 
     private final Map<UUID, BridgeTaskData> bridgeData = new HashMap<>();
     private HolderLookup.Provider cachedProvider;
@@ -59,6 +64,10 @@ public class BridgeTaskHandlerRepository extends SavedData {
                 if (bridgeCompound.contains(TAG_ACTIVE_TASKS, Tag.TAG_LIST)) {
                     data.activeTasks = readActiveTaskList(
                         bridgeCompound.getList(TAG_ACTIVE_TASKS, Tag.TAG_COMPOUND), provider, bridgeId);
+                }
+                if (bridgeCompound.contains(TAG_ALLOCATED_MATTER, Tag.TAG_LIST)) {
+                    data.allocatedMatterByTask = readAllocatedMatterList(
+                        bridgeCompound.getList(TAG_ALLOCATED_MATTER, Tag.TAG_COMPOUND));
                 }
 
                 if (!data.isEmpty()) {
@@ -124,6 +133,9 @@ public class BridgeTaskHandlerRepository extends SavedData {
             if (!data.activeTasks.isEmpty()) {
                 bridgeCompound.put(TAG_ACTIVE_TASKS, writeActiveTaskList(data.activeTasks, provider));
             }
+            if (!data.allocatedMatterByTask.isEmpty()) {
+                bridgeCompound.put(TAG_ALLOCATED_MATTER, writeAllocatedMatterList(data.allocatedMatterByTask));
+            }
 
             bridgesList.add(bridgeCompound);
         }
@@ -183,6 +195,51 @@ public class BridgeTaskHandlerRepository extends SavedData {
         return map;
     }
 
+    private ListTag writeAllocatedMatterList(Map<String, Map<String, Long>> allocated) {
+        ListTag list = new ListTag();
+        allocated.forEach((taskId, matterMap) -> {
+            if (matterMap.isEmpty()) {
+                return;
+            }
+            CompoundTag entry = new CompoundTag();
+            entry.putString(TAG_TASK_ID, taskId);
+            ListTag matterList = new ListTag();
+            matterMap.forEach((matterId, amount) -> {
+                CompoundTag matterEntry = new CompoundTag();
+                matterEntry.putString(TAG_MATTER_TYPE, matterId);
+                matterEntry.putLong(TAG_AMOUNT, amount);
+                matterList.add(matterEntry);
+            });
+            entry.put(TAG_MATTER, matterList);
+            list.add(entry);
+        });
+        return list;
+    }
+
+    private Map<String, Map<String, Long>> readAllocatedMatterList(ListTag list) {
+        Map<String, Map<String, Long>> allocated = new HashMap<>();
+        for (Tag element : list) {
+            CompoundTag entry = (CompoundTag) element;
+            String taskId = entry.getString(TAG_TASK_ID);
+            if (taskId == null || taskId.isEmpty()) {
+                continue;
+            }
+            Map<String, Long> matterMap = new HashMap<>();
+            for (Tag matterTag : entry.getList(TAG_MATTER, Tag.TAG_COMPOUND)) {
+                CompoundTag matterEntry = (CompoundTag) matterTag;
+                String matterId = matterEntry.getString(TAG_MATTER_TYPE);
+                long amount = matterEntry.getLong(TAG_AMOUNT);
+                if (!matterId.isEmpty() && amount > 0) {
+                    matterMap.put(matterId, amount);
+                }
+            }
+            if (!matterMap.isEmpty()) {
+                allocated.put(taskId, matterMap);
+            }
+        }
+        return allocated;
+    }
+
     private ListTag writeActiveTaskList(Map<String, TaskSourceInfo> tasks, HolderLookup.Provider provider) {
         ListTag list = new ListTag();
         tasks.forEach((taskId, info) -> {
@@ -223,12 +280,14 @@ public class BridgeTaskHandlerRepository extends SavedData {
         public Map<ItemStack, Integer> patternRequests = new HashMap<>();
         public Map<ItemStack, Integer> patternRequestsBySource = new HashMap<>();
         public Map<String, TaskSourceInfo> activeTasks = new HashMap<>();
+        public Map<String, Map<String, Long>> allocatedMatterByTask = new HashMap<>();
 
         public boolean isEmpty() {
             return requestCounters.isEmpty()
                 && patternRequests.isEmpty()
                 && patternRequestsBySource.isEmpty()
-                && activeTasks.isEmpty();
+                && activeTasks.isEmpty()
+                && allocatedMatterByTask.isEmpty();
         }
 
         public void clear() {
@@ -236,6 +295,7 @@ public class BridgeTaskHandlerRepository extends SavedData {
             patternRequests.clear();
             patternRequestsBySource.clear();
             activeTasks.clear();
+            allocatedMatterByTask.clear();
         }
     }
 }

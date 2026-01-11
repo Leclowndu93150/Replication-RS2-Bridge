@@ -23,7 +23,6 @@ import com.leclowndu93150.replication_rs2_bridge.block.entity.pattern.Replicatio
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.ReplicationTaskHandler;
 import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternRepository;
 import com.leclowndu93150.replication_rs2_bridge.storage.BridgePatternStorage;
-import com.leclowndu93150.replication_rs2_bridge.storage.BridgeTaskSnapshotRepository;
 import com.leclowndu93150.replication_rs2_bridge.block.entity.task.TaskSnapshotNbt;
 import com.leclowndu93150.replication_rs2_bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
@@ -60,6 +59,8 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
@@ -74,6 +75,9 @@ import org.slf4j.Logger;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
 /**
  * BlockEntity for the RepRS2Bridge that connects the RS2 network with the Replication matter network
@@ -88,6 +92,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final int PATTERN_UPDATE_INTERVAL = 100;
     private static final int STORAGE_RESYNC_INTERVAL = 100;
     private static final String TAG_RS_TASK_SNAPSHOTS = "RsTaskSnapshots";
+    private static final String TAG_RS_TASK_SNAPSHOTS_COMPRESSED = "RsTaskSnapshotsCompressed";
     private static final String TAG_PATTERN_ID_MAPPINGS = "PatternIdMappings";
     private static final String TAG_PATTERN_ID = "PatternId";
     private static final String TAG_PRIORITY = "Priority";
@@ -97,6 +102,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private int patternUpdateTicks = 0;
     private int storageResyncTicks = 0;
     private int debugTickCounter = 0;
+    private boolean patternsDirty = true;
     
     @Save
     private InventoryComponent<RepRS2BridgeBlockEntity> output;
@@ -116,6 +122,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private static final int TASK_SNAPSHOT_SAVE_INTERVAL = 20;
     private int taskSnapshotSaveTicks = 0;
     private boolean hadActiveRsTasks = false;
+    private List<TaskSnapshot> lastNonEmptySnapshots = List.of();
     
     private static boolean worldUnloading = false;
     private static final Set<RepRS2BridgeBlockEntity> activeBridges = new HashSet<>();
@@ -127,6 +134,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 ModBlockEntities.REP_RS2_BRIDGE.get(),
                 pos,
                 state);
+        resetWorldUnloadingIfNeeded();
         
         this.blockId = UUID.randomUUID();
         
@@ -148,6 +156,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         
         this.initialized = 0;
         this.initializationTicks = 0;
+        this.patternsDirty = true;
         
         activeBridges.add(this);
     }
@@ -214,8 +223,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
 
         if (level != null && !level.isClientSide()) {
             migrateOldPatternMappings();
-            // Load task handler data from SavedData repository (now that level is available)
-            taskHandler.loadFromRepository();
+            taskHandler.rebuildAllocationState();
+            patternsDirty = true;
             nodeLifecycle.requestInitialization("on_load");
         }
     }
@@ -240,11 +249,13 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     }
 
     public void onRsNodeInitializedFromLifecycle() {
+        LOGGER.info("Bridge {} RS node initialized, refreshing patterns/storage", blockId);
         updateConnectedState();
         forceNeighborUpdates();
         matterItemsStorage.refreshCache();
         networkNode.setPriority(priority);
         patternUpdateTicks = PATTERN_UPDATE_INTERVAL;
+        patternsDirty = true;
         try {
             updateRS2Patterns(getNetwork());
         } catch (Exception patternEx) {
@@ -263,6 +274,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                 level.setBlock(worldPosition, state.setValue(RepRS2BridgeBlock.CONNECTED, connected), 3);
             }
         }
+        patternsDirty = true;
     }
 
     private void forceNeighborUpdates() {
@@ -311,12 +323,10 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
         
         if (level.getGameTime() % 20 == 0) {
-            if (initialized == 1) {
-                try {
-                    transferItemsToRS2();
-                } catch (Exception e) {
-                    LOGGER.error("Bridge: Exception in transferItemsToRS2(): {}", e.getMessage());
-                }
+            try {
+                transferItemsToRS2();
+            } catch (Exception e) {
+                LOGGER.error("Bridge: Exception in transferItemsToRS2(): {}", e.getMessage());
             }
             matterItemsStorage.refreshCache();
         }
@@ -324,7 +334,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         // Periodically save task data to repository (every 5 minutes for crash recovery)
         if (level.getGameTime() % 6000 == 0 && initialized == 1) {
             saveTaskSnapshotsToRepository();
-            taskHandler.saveToRepository();
         }
         
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
@@ -334,21 +343,34 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
                     try {
                         updateRS2Patterns(replicationNetwork);
                         updated = true;
+                        patternsDirty = false;
                     } catch (Exception e) {
                         LOGGER.error("Bridge: Exception during pattern update: {}", e.getMessage());
+                        patternsDirty = true;
                     }
                 }
             }
             patternUpdateTicks = updated ? 0 : PATTERN_UPDATE_INTERVAL;
         } else {
-            patternUpdateTicks++;
+            if (patternsDirty && isActive() && replicationNetwork != null) {
+                try {
+                    updateRS2Patterns(replicationNetwork);
+                    patternsDirty = false;
+                    patternUpdateTicks = 0;
+                } catch (Exception e) {
+                    LOGGER.error("Bridge: Exception during pattern update (dirty retry): {}", e.getMessage());
+                }
+            } else {
+                patternUpdateTicks++;
+            }
         }
 
         if (++storageResyncTicks >= STORAGE_RESYNC_INTERVAL) {
             storageResyncTicks = 0;
             if (isActive()) {
-                networkNode.refreshStorageInNetwork();
                 matterItemsStorage.refreshCache();
+                taskHandler.markNeedsTaskRescan();
+                taskHandler.forceImmediateProcessing();
             }
         }
         
@@ -614,11 +636,9 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             tag.putUUID("BlockId", blockId);
         }
         tag.putInt(TAG_PRIORITY, priority);
-        // Task handler data is now saved to SavedData repository, not block entity NBT
-        // The deprecated methods are kept for API compatibility but do nothing
-        taskHandler.saveLocalRequestState(tag, registries);
-        taskHandler.saveLocalActiveTasks(tag, registries);
-        // Task snapshots are saved to SavedData via saveTaskSnapshotsToRepository()
+        taskHandler.prepareForSave(getNetwork());
+        taskHandler.saveToNbt(tag, registries);
+        saveCompressedSnapshotsToNbt(tag);
     }
 
     @Override
@@ -634,12 +654,8 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             priority = tag.getInt(TAG_PRIORITY);
         }
         nodeLifecycle.resetAfterDataLoad();
-        // Legacy migration: if old NBT data exists, migrate it to SavedData
-        taskHandler.loadLocalRequestState(tag, registries);
-        taskHandler.loadLocalActiveTasks(tag, registries);
-        // Load task snapshots from SavedData repository instead of block entity NBT
-        loadTaskSnapshotsFromRepository();
-        // Legacy migration: if old NBT data exists, load and migrate it
+        taskHandler.loadFromNbt(tag, registries);
+        loadCompressedSnapshotsFromNbt(tag);
         if (tag.contains(TAG_RS_TASK_SNAPSHOTS, Tag.TAG_LIST)) {
             loadTaskSnapshots(tag, registries);
         }
@@ -653,7 +669,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     public void setRemoved() {
         activeBridges.remove(this);
         saveTaskSnapshotsToRepository();
-        taskHandler.saveToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("set_removed", false);
         }
@@ -663,7 +678,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     @Override
     public void onChunkUnloaded() {
         saveTaskSnapshotsToRepository();
-        taskHandler.saveToRepository();
         if (!nodeLifecycle.isRemoved()) {
             nodeLifecycle.shutdown("chunk_unloaded", true);
         }
@@ -691,8 +705,24 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         return worldUnloading;
     }
 
+    private static void resetWorldUnloadingIfNeeded() {
+        if (worldUnloading) {
+            worldUnloading = false;
+            activeBridges.clear();
+        }
+    }
+
+    public static void flushAllToSavedData() {
+        // no-op: SavedData persistence removed for task state
+    }
+
     private static void cancelAllPendingOperations() {
         for (RepRS2BridgeBlockEntity bridge : new ArrayList<>(activeBridges)) {
+            try {
+                bridge.taskHandler.cancelAllReplicationTasks(bridge.getNetwork());
+            } catch (Exception e) {
+                LOGGER.warn("RepRS2Bridge: Failed to cancel replication tasks during shutdown for {}: {}", bridge.blockId, e.getMessage());
+            }
             bridge.taskHandler.clearPendingOperations();
         }
     }
@@ -809,6 +839,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             taskSnapshotSaveTicks = 0;
         }
         hadActiveRsTasks = hasTasks;
+        taskHandler.compactIfIdle(hasTasks);
     }
 
     private void markTaskSnapshotsDirty() {
@@ -861,18 +892,66 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             return;
         }
         List<TaskSnapshot> snapshots = networkNode.getTaskSnapshots();
-        BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
-        repo.setSnapshotsForBridge(blockId, snapshots);
+        if (snapshots.isEmpty() && hadActiveRsTasks && !lastNonEmptySnapshots.isEmpty()) {
+            snapshots = lastNonEmptySnapshots;
+        } else if (!snapshots.isEmpty()) {
+            lastNonEmptySnapshots = snapshots;
+        }
     }
 
-    private void loadTaskSnapshotsFromRepository() {
-        if (level == null || level.isClientSide() || blockId == null) {
+    private void saveCompressedSnapshotsToNbt(final CompoundTag tag) {
+        List<TaskSnapshot> snapshots = networkNode.getTaskSnapshots();
+        if (snapshots.isEmpty()) {
+            if (networkNode.hasActiveTasks()) {
+                // keep lastNonEmptySnapshots as-is for in-flight tasks
+                snapshots = lastNonEmptySnapshots;
+            } else {
+                lastNonEmptySnapshots = List.of();
+                return;
+            }
+        } else {
+            lastNonEmptySnapshots = snapshots;
+        }
+        final ListTag listTag = new ListTag();
+        for (TaskSnapshot snapshot : snapshots) {
+            try {
+                listTag.add(TaskSnapshotNbt.encode(snapshot));
+            } catch (Exception e) {
+                LOGGER.warn("Bridge {} failed to encode RS2 task snapshot for NBT: {}", blockId, e.getMessage());
+            }
+        }
+        final CompoundTag wrapper = new CompoundTag();
+        wrapper.put(TAG_RS_TASK_SNAPSHOTS, listTag);
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            NbtIo.writeCompressed(wrapper, out);
+            tag.putByteArray(TAG_RS_TASK_SNAPSHOTS_COMPRESSED, out.toByteArray());
+        } catch (IOException e) {
+            LOGGER.warn("Bridge {} failed to write compressed RS2 task snapshots to NBT: {}", blockId, e.getMessage());
+        }
+    }
+
+    private void loadCompressedSnapshotsFromNbt(final CompoundTag tag) {
+        if (!tag.contains(TAG_RS_TASK_SNAPSHOTS_COMPRESSED, Tag.TAG_BYTE_ARRAY)) {
             return;
         }
-        BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
-        List<TaskSnapshot> snapshots = repo.getSnapshotsForBridge(blockId);
-        if (!snapshots.isEmpty()) {
-            networkNode.restoreTasks(snapshots);
+        final byte[] compressed = tag.getByteArray(TAG_RS_TASK_SNAPSHOTS_COMPRESSED);
+        try (ByteArrayInputStream in = new ByteArrayInputStream(compressed)) {
+            final CompoundTag wrapper = NbtIo.readCompressed(in, NbtAccounter.unlimitedHeap());
+            final List<TaskSnapshot> snapshots = new ArrayList<>();
+            for (Tag element : wrapper.getList(TAG_RS_TASK_SNAPSHOTS, Tag.TAG_COMPOUND)) {
+                try {
+                    snapshots.add(TaskSnapshotNbt.decode((CompoundTag) element));
+                } catch (Exception e) {
+                    LOGGER.warn("Bridge {} failed to decode RS2 task snapshot from compressed NBT: {}", blockId, e.getMessage());
+                }
+            }
+            if (!snapshots.isEmpty()) {
+                LOGGER.warn("Bridge {} restoring {} RS2 task snapshots from compressed NBT", blockId, snapshots.size());
+                networkNode.restoreTasks(snapshots);
+                lastNonEmptySnapshots = snapshots;
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Bridge {} failed to read compressed RS2 task snapshots from NBT: {}", blockId, e.getMessage());
         }
     }
 
@@ -894,12 +973,6 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
         }
         if (!snapshots.isEmpty()) {
             networkNode.restoreTasks(snapshots);
-            // Migrate to new storage - save to repository
-            if (level != null && !level.isClientSide() && blockId != null) {
-                BridgeTaskSnapshotRepository repo = BridgePatternStorage.getTaskSnapshots(level);
-                repo.setSnapshotsForBridge(blockId, snapshots);
-                LOGGER.info("Migrated {} task snapshots from NBT to SavedData for bridge {}", snapshots.size(), blockId);
-            }
         }
     }
     

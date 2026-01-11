@@ -57,6 +57,7 @@ public class BridgeTaskSnapshotRepository extends SavedData {
     }
 
     public void setSnapshotsForBridge(UUID bridgeId, List<TaskSnapshot> snapshots) {
+        //RepRS2BridgeLogger.snapshotSave(bridgeId, snapshots.size());
         if (snapshots == null || snapshots.isEmpty()) {
             bridgeSnapshots.remove(bridgeId);
         } else {
@@ -77,6 +78,7 @@ public class BridgeTaskSnapshotRepository extends SavedData {
 
         for (Map.Entry<UUID, List<TaskSnapshot>> bridgeEntry : bridgeSnapshots.entrySet()) {
             if (bridgeEntry.getValue().isEmpty()) {
+                //RepRS2BridgeLogger.snapshotSkipEmpty(bridgeEntry.getKey());
                 continue;
             }
 
@@ -88,7 +90,7 @@ public class BridgeTaskSnapshotRepository extends SavedData {
                 try {
                     snapshotsList.add(TaskSnapshotNbt.encode(snapshot));
                 } catch (Exception e) {
-                    // Skip snapshots that fail to encode
+                    //RepRS2BridgeLogger.snapshotEncodeFailed(bridgeEntry.getKey(), e);
                 }
             }
             bridgeCompound.put(TAG_SNAPSHOTS, snapshotsList);

@@ -27,6 +27,9 @@ import com.refinedmods.refinedstorage.api.storage.composite.ParentComposite;
 import com.refinedmods.refinedstorage.common.api.storage.PlayerActor;
 import com.refinedmods.refinedstorage.common.support.resource.ItemResource;
 
+import org.slf4j.Logger;
+import com.mojang.logging.LogUtils;
+
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -38,6 +41,7 @@ public final class MatterItemsStorage implements Storage, CompositeAwareChild {
     private final ReplicationTaskHandler taskHandler;
     private ParentComposite parentComposite;
     private final Map<ResourceKey, Long> cachedAmounts = new HashMap<>();
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     public MatterItemsStorage(final RepRS2BridgeBlockEntity owner, final ReplicationTaskHandler taskHandler) {
         this.owner = owner;
@@ -95,18 +99,17 @@ public final class MatterItemsStorage implements Storage, CompositeAwareChild {
         final List<IMatterType> matterTypes = new ArrayList<>(
             ReplicationRegistry.MATTER_TYPES_REGISTRY.stream().toList()
         );
-        final Map<IMatterType, Long> totalAllocated = taskHandler.summarizeAllocatedMatter();
 
         for (IMatterType matterType : matterTypes) {
-            final long amount = network.calculateMatterAmount(matterType);
-            final long allocated = totalAllocated.getOrDefault(matterType, 0L);
-            final long available = amount - allocated;
-            if (available > 0) {
-                final ItemStack matterStack = UniversalMatterItem.createMatterStack(matterType, 1);
-                if (!matterStack.isEmpty()) {
-                    final ItemResource resource = ItemResource.ofItemStack(matterStack);
-                    amounts.add(new ResourceAmount(resource, available));
-                }
+            final long amount = Math.max(0L, network.calculateMatterAmount(matterType));
+            if (amount <= 0) {
+                continue;
+            }
+            final long safeAvailable = Math.min(amount, Long.MAX_VALUE / 4);
+            final ItemStack matterStack = UniversalMatterItem.createMatterStack(matterType, 1);
+            if (!matterStack.isEmpty()) {
+                final ItemResource resource = ItemResource.ofItemStack(matterStack);
+                amounts.add(new ResourceAmount(resource, safeAvailable));
             }
         }
         return amounts;
@@ -120,10 +123,7 @@ public final class MatterItemsStorage implements Storage, CompositeAwareChild {
     @Override
     public void onAddedIntoComposite(final ParentComposite parentComposite) {
         this.parentComposite = parentComposite;
-        cachedAmounts.clear();
-        for (ResourceAmount amount : getAll()) {
-            cachedAmounts.put(amount.resource(), amount.amount());
-        }
+        refreshCache();
     }
 
     @Override
@@ -152,26 +152,29 @@ public final class MatterItemsStorage implements Storage, CompositeAwareChild {
         }
         final Map<ResourceKey, Long> latest = new HashMap<>();
         for (ResourceAmount amount : getAll()) {
-            latest.put(amount.resource(), amount.amount());
-        }
-        for (Map.Entry<ResourceKey, Long> entry : latest.entrySet()) {
-            final long previous = cachedAmounts.getOrDefault(entry.getKey(), 0L);
-            final long delta = entry.getValue() - previous;
-            if (delta > 0) {
-                parentComposite.addToCache(entry.getKey(), delta);
-            } else if (delta < 0) {
-                parentComposite.removeFromCache(entry.getKey(), -delta);
+            final long safe = Math.max(0L, Math.min(amount.amount(), Long.MAX_VALUE / 4));
+            if (safe == 0) {
+                continue;
             }
+            latest.put(amount.resource(), safe);
         }
-        for (ResourceKey previousKey : new HashSet<>(cachedAmounts.keySet())) {
-            if (!latest.containsKey(previousKey)) {
-                final long previous = cachedAmounts.get(previousKey);
-                if (previous > 0) {
-                    parentComposite.removeFromCache(previousKey, previous);
-                }
-            }
+        if (latest.equals(cachedAmounts)) {
+            return;
+        }
+        // Clear all previous contributions (even if cache was lost).
+        final var keysToClear = new HashSet<ResourceKey>();
+        keysToClear.addAll(cachedAmounts.keySet());
+        keysToClear.addAll(latest.keySet());
+        for (ResourceKey key : keysToClear) {
+            parentComposite.removeFromCache(key, Long.MAX_VALUE);
         }
         cachedAmounts.clear();
-        cachedAmounts.putAll(latest);
+
+        // Add fresh totals based on the replication network snapshot.
+        for (Map.Entry<ResourceKey, Long> entry : latest.entrySet()) {
+            final long safe = entry.getValue();
+            cachedAmounts.put(entry.getKey(), safe);
+            parentComposite.addToCache(entry.getKey(), safe);
+        }
     }
 }
