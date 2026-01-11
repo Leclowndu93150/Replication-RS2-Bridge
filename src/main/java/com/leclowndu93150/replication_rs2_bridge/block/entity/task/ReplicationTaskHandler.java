@@ -87,6 +87,7 @@ public final class ReplicationTaskHandler {
             relinkActiveTasksFromNetwork(replicationNetwork);
             needsTaskRescan = false;
         }
+        cleanupCompletedTasks(replicationNetwork);
         if (requestCounterTicks >= REQUEST_ACCUMULATION_TICKS) {
             try {
                 processAccumulatedRequests(replicationNetwork);
@@ -351,6 +352,41 @@ public final class ReplicationTaskHandler {
         requestCounters.clear();
         patternRequests.clear();
         patternRequestsBySource.clear();
+    }
+
+    private void cleanupCompletedTasks(@Nullable final MatterNetwork replicationNetwork) {
+        if (replicationNetwork == null) {
+            return;
+        }
+        final var pendingTasks = replicationNetwork.getTaskManager().getPendingTasks();
+        boolean removedAny = false;
+
+        for (UUID sourceId : new ArrayList<>(activeTasks.keySet())) {
+            final Map<String, TaskSourceInfo> sourceTasks = activeTasks.get(sourceId);
+            if (sourceTasks == null) {
+                continue;
+            }
+            for (String taskId : new ArrayList<>(sourceTasks.keySet())) {
+                if (pendingTasks.containsKey(taskId)) {
+                    continue;
+                }
+                sourceTasks.remove(taskId);
+                allocatedMatterByTask.remove(taskId);
+                removedAny = true;
+            }
+            if (sourceTasks.isEmpty()) {
+                activeTasks.remove(sourceId);
+            }
+        }
+
+        if (removedAny) {
+            owner.getMatterStorage().refreshCache();
+            final RepRS2BridgeNetworkNode networkNode = owner.getBridgeNetworkNode();
+            if (networkNode != null) {
+                networkNode.refreshStorageInNetwork();
+            }
+            owner.setChanged();
+        }
     }
 
     private void processAccumulatedRequests(@Nullable final MatterNetwork network) {

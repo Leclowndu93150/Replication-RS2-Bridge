@@ -86,6 +86,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     
     private static final int INITIALIZATION_DELAY = 60;
     private static final int PATTERN_UPDATE_INTERVAL = 100;
+    private static final int STORAGE_RESYNC_INTERVAL = 100;
     private static final String TAG_RS_TASK_SNAPSHOTS = "RsTaskSnapshots";
     private static final String TAG_PATTERN_ID_MAPPINGS = "PatternIdMappings";
     private static final String TAG_PATTERN_ID = "PatternId";
@@ -94,6 +95,7 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
     private byte initialized = 0;
     private int initializationTicks = 0;
     private int patternUpdateTicks = 0;
+    private int storageResyncTicks = 0;
     private int debugTickCounter = 0;
     
     @Save
@@ -340,6 +342,14 @@ public class RepRS2BridgeBlockEntity extends ReplicationMachine<RepRS2BridgeBloc
             patternUpdateTicks = updated ? 0 : PATTERN_UPDATE_INTERVAL;
         } else {
             patternUpdateTicks++;
+        }
+
+        if (++storageResyncTicks >= STORAGE_RESYNC_INTERVAL) {
+            storageResyncTicks = 0;
+            if (isActive()) {
+                networkNode.refreshStorageInNetwork();
+                matterItemsStorage.refreshCache();
+            }
         }
         
         if (replicationNetwork == null) {
